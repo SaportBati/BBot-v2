@@ -9,9 +9,10 @@ local sampev = require 'samp.events'
 local vkeys = require 'vkeys'
 local dlstatus = require('moonloader').download_status
 
-local CURRENT_VERSION = "2.0"
+local CURRENT_VERSION = "2.1"
 local VERSION_INFO_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/BbotVersion.ini'
 local SCRIPT_DOWNLOAD_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/Bbot%20v2.0.lua'
+local FONT_DOWNLOAD_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/EagleSans-Reg.ttf'
 
 local UPDATE_DEBUG_MESSAGES = false
 
@@ -58,6 +59,30 @@ notificationMaxCount = 5
 notificationDuration = 3.0
 notificationFadeIn = 0.3
 notificationFadeOut = 0.3
+
+local fonts = {}
+
+local function pushBodyFont()
+	if fonts.body then imgui.PushFont(fonts.body) end
+end
+
+local function popBodyFont()
+	if fonts.body then imgui.PopFont() end
+end
+
+local function pushHeadingFont()
+	if fonts.heading then imgui.PushFont(fonts.heading) end
+end
+
+local function popHeadingFont()
+	if fonts.heading then imgui.PopFont() end
+end
+
+local function HeadingText(text)
+	pushHeadingFont()
+	imgui.Text(text)
+	popHeadingFont()
+end
 
 function addNotification(text)
 	if not text or text == '' then return end
@@ -124,6 +149,18 @@ lowDelayPrevValue = 4000
 lowDelayContinueEnabled = false
 lowDelayContinueEnableTime = 0
 
+addCoordsInProgress = false
+
+worldDetection = {
+	lastValue = nil,
+	updatedAt = 0,
+	lastRequestAt = 0,
+	lastRequestToken = 0,
+	pending = false
+}
+worldDetectionMaxAge = 30.0
+worldDetectionRequestCooldown = 2.5
+
 -- Фоновый режим (работает как Idle, но без /re и окна)
 backgroundMode = new.bool(false)
 activationKey = new.int(0x52) -- R по умолчанию
@@ -144,6 +181,76 @@ lastFrameTime = os.clock()
 local function trim(str)
 	if type(str) ~= 'string' then return '' end
 	return (str:gsub('^%s+', ''):gsub('%s+$', ''))
+end
+
+local function callAndExtractNumber(fn, ...)
+	if type(fn) ~= 'function' then return nil end
+	local results = { pcall(fn, ...) }
+	if not results[1] then return nil end
+	for i = 2, #results do
+		local val = results[i]
+		if type(val) == 'number' then
+			return val
+		elseif type(val) == 'string' then
+			local num = tonumber(val)
+			if num then return num end
+		end
+	end
+	return nil
+end
+
+local function captureWorldFromMessage(message)
+	if type(message) ~= 'string' or message == '' then return end
+	local lower = message:lower()
+	local worldStr = lower:match('current%s+world[:%s]+(%d+)')
+	if not worldStr then return end
+	worldDetection.lastValue = tonumber(worldStr)
+	worldDetection.updatedAt = os.clock()
+	worldDetection.pending = false
+end
+
+local function requestWorldIdViaChat(force)
+	if type(sampSendChat) ~= 'function' then return nil end
+	if type(sampIsChatInputActive) == 'function' and sampIsChatInputActive() then return nil end
+	local now = os.clock()
+	if not force and (now - worldDetection.lastRequestAt) < worldDetectionRequestCooldown then return nil end
+	sampSendChat('/setvw')
+	if lastCommandTime then
+		lastCommandTime = os.clock() * 1000
+	end
+	worldDetection.pending = true
+	worldDetection.lastRequestAt = now
+	worldDetection.lastRequestToken = now
+	return now
+end
+
+local function waitForWorldDetection(maxWaitMs, minUpdatedAt)
+	maxWaitMs = tonumber(maxWaitMs) or 0
+	if maxWaitMs <= 0 then return nil end
+	local deadline = os.clock() + (maxWaitMs / 1000.0)
+	while os.clock() < deadline do
+		local now = os.clock()
+		if worldDetection.lastValue then
+			local age = now - worldDetection.updatedAt
+			local fresh = age <= worldDetectionMaxAge
+			local meetsThreshold = (not minUpdatedAt) or (worldDetection.updatedAt >= minUpdatedAt)
+			if fresh and meetsThreshold then
+				return worldDetection.lastValue
+			end
+		end
+		if not worldDetection.pending then break end
+		wait(10)
+	end
+	if worldDetection.lastValue then
+		local now = os.clock()
+		local age = now - worldDetection.updatedAt
+		local fresh = age <= worldDetectionMaxAge
+		local meetsThreshold = (not minUpdatedAt) or (worldDetection.updatedAt >= minUpdatedAt)
+		if fresh and meetsThreshold then
+			return worldDetection.lastValue
+		end
+	end
+	return nil
 end
 
 function applyUiTheme()
@@ -224,7 +331,9 @@ function DangerButton(label, size)
 	imgui.PushStyleColor(imgui.Col.ButtonHovered, hoverColor)
 	imgui.PushStyleColor(imgui.Col.ButtonActive, activeColor)
 
+	pushHeadingFont()
 	local clicked = imgui.Button(label, size)
+	popHeadingFont()
 	
 	imgui.PopStyleColor(3)
 	return clicked
@@ -240,7 +349,9 @@ function SecondaryButton(label, size)
 	imgui.PushStyleColor(imgui.Col.ButtonHovered, hoverColor)
 	imgui.PushStyleColor(imgui.Col.ButtonActive, activeColor)
 
+	pushHeadingFont()
 	local clicked = imgui.Button(label, size)
+	popHeadingFont()
 	
 	imgui.PopStyleColor(3)
 	return clicked
@@ -274,7 +385,9 @@ function AnimatedButton(label, size, baseColor, pulseSpeed)
 		1.00
 	))
 
+	pushHeadingFont()
 	local clicked = imgui.Button(label, size)
+	popHeadingFont()
 	
 	imgui.PopStyleColor(3)
 	return clicked
@@ -380,6 +493,79 @@ function getConfigDir()
 	return getWorkingDirectory() .. "\\config\\BBot"
 end
 
+local function downloadFontIfNeeded()
+	local fontPath = getConfigDir() .. '\\EagleSans-Reg.ttf'
+	
+	-- Проверяем, существует ли файл шрифта
+	if doesFileExist(fontPath) then
+		return -- Шрифт уже существует, загрузка не нужна
+	end
+	
+	-- Создаем директорию, если её нет
+	local configDir = getConfigDir()
+	if not doesDirectoryExist(configDir) then
+		createDirectory(configDir)
+	end
+	
+	-- Загружаем шрифт
+	sendUpdateMessage('Загрузка шрифта EagleSans-Reg.ttf...')
+	downloadUrlToFile(FONT_DOWNLOAD_URL, fontPath, function(id, status)
+		if status == dlstatus.STATUS_ENDDOWNLOADDATA then
+			sendUpdateMessage('Шрифт успешно загружен.')
+		elseif status == dlstatus.STATUSEX_ENDDOWNLOAD then
+			if doesFileExist(fontPath) then
+				sendUpdateMessage('Шрифт успешно загружен и сохранен.')
+			else
+				sendUpdateMessage('Ошибка при загрузке шрифта.')
+			end
+		end
+	end)
+end
+
+imgui.OnInitialize(function()
+	local io = imgui.GetIO()
+	local glyphRanges = io.Fonts:GetGlyphRangesCyrillic()
+	local config = imgui.ImFontConfig()
+	config.MergeMode = false
+	config.PixelSnapH = true
+
+	local fontPath = getConfigDir() .. '\\EagleSans-Reg.ttf'
+	if doesFileExist(fontPath) then
+		local baseFont = io.Fonts:AddFontFromFileTTF(fontPath, 20.0, config, glyphRanges)
+		if baseFont then
+			fonts.notification = baseFont
+			fonts.default = baseFont
+			fonts.heading = baseFont
+			io.FontDefault = baseFont
+
+			local configBody = imgui.ImFontConfig()
+			configBody.PixelSnapH = true
+			fonts.body = io.Fonts:AddFontFromFileTTF(fontPath, 17.0, configBody, glyphRanges) or baseFont
+
+			local configLarge = imgui.ImFontConfig()
+			configLarge.PixelSnapH = true
+			fonts.welcomeLarge = io.Fonts:AddFontFromFileTTF(fontPath, 48.0, configLarge, glyphRanges) or baseFont
+
+			local configMedium = imgui.ImFontConfig()
+			configMedium.PixelSnapH = true
+			fonts.welcomeMedium = io.Fonts:AddFontFromFileTTF(fontPath, 28.0, configMedium, glyphRanges) or baseFont
+		end
+	end
+
+	if not fonts.notification then
+		fonts.notification = io.FontDefault
+	end
+	if not fonts.default then
+		fonts.default = io.FontDefault
+	end
+	if not fonts.body then
+		fonts.body = fonts.default
+	end
+	if not fonts.heading then
+		fonts.heading = fonts.default
+	end
+end)
+
 function getSettingsPath()
 	return getConfigDir() .. "\\settings.txt"
 end
@@ -387,6 +573,8 @@ end
 function getVersionTempPath()
 	return getConfigDir() .. "\\BbotVersion.ini"
 end
+
+local showUpdateChatHint
 
 local function deferUpdateReminder()
 	if not updateAvailableVersion then return end
@@ -396,7 +584,7 @@ local function deferUpdateReminder()
 	UpdateWindowState[0] = false
 end
 
-local function showUpdateChatHint()
+function showUpdateChatHint()
 	if type(sampAddChatMessage) ~= 'function' then return end
 	local colorBotTag = '{AA77FF}'
 	local colorNormal = '{CCCCCC}'
@@ -752,10 +940,10 @@ function ensureCoordsFile()
 		if f then
 
 			f:write("\239\187\191")
-			f:write(u8:encode('Ферма|-103.05|106.17|8.12') .. '\n')
-			f:write(u8:encode('Респа 1|1750.88|-1892.53|29.24') .. '\n')
-			f:write(u8:encode('Респа 2|1153.03|-1762.28|21.84') .. '\n')
-			f:write(u8:encode('Завод|-86.12|-298.01|16.42') .. '\n')
+			f:write(u8:encode('Ферма|-103.05|106.17|8.12|0|0') .. '\n')
+			f:write(u8:encode('Респа 1|1750.88|-1892.53|29.24|0|0') .. '\n')
+			f:write(u8:encode('Респа 2|1153.03|-1762.28|21.84|0|0') .. '\n')
+			f:write(u8:encode('Завод|-86.12|-298.01|16.42|0|0') .. '\n')
 			f:close()
 		end
 	end
@@ -769,17 +957,24 @@ function loadCoords()
 	teleportCoords = {}
 	teleportNames = {}
 	for line in f:lines() do
-
 		line = line:gsub("^\239\187\191", "")
-		local name, sx, sy, sz = line:match("^([^|]+)|%s*(-?[%n%d%.]+)|%s*(-?[%n%d%.]+)|%s*(-?[%n%d%.]+)%s*$")
-		if name and sx and sy and sz then
-			local x = tonumber(sx)
-			local y = tonumber(sy)
-			local z = tonumber(sz)
-			if x and y and z then
 
+		local parts = {}
+		for part in string.gmatch(line, "([^|]+)") do
+			table.insert(parts, part:match("^%s*(.-)%s*$"))
+		end
+
+		if #parts >= 4 then
+			local name = parts[1]
+			local x = tonumber(parts[2])
+			local y = tonumber(parts[3])
+			local z = tonumber(parts[4])
+			local world = tonumber(parts[5]) or 0
+			local interior = tonumber(parts[6]) or 0
+
+			if name and x and y and z then
 				local idx = #teleportCoords + 1
-				table.insert(teleportCoords, { x = x, y = y, z = z })
+				table.insert(teleportCoords, { x = x, y = y, z = z, world = world, interior = interior })
 				teleportNames[idx] = new.char[64](name)
 			end
 		end
@@ -797,9 +992,53 @@ function saveCoords()
 	for i, coord in ipairs(teleportCoords) do
 		local nm = teleportNames[i] and ffi.string(teleportNames[i]) or string.format('Точка %d', i)
 		if not isValidUtf8(nm) then nm = u8:encode(nm) end
-		f:write(string.format("%s|%.2f|%.2f|%.2f\n", nm, coord.x, coord.y, coord.z))
+		local world = tonumber(coord.world) or 0
+		local interior = tonumber(coord.interior) or 0
+		f:write(string.format("%s|%.2f|%.2f|%.2f|%d|%d\n", nm, coord.x, coord.y, coord.z, world, interior))
 	end
 	f:close()
+end
+
+function getCurrentWorldAndInterior(delayMs, minUpdatedAt)
+	local world, interior = 0, 0
+
+	if type(getActiveInterior) == 'function' then
+		local okInterior, value = pcall(getActiveInterior)
+		if okInterior and value ~= nil then interior = value end
+	end
+
+	local worldValue = callAndExtractNumber(sampGetPlayerVirtualWorldLocal)
+	if not worldValue and type(sampGetPlayerIdByCharHandle) == 'function' then
+		local okSelf, sampOk, myId = pcall(sampGetPlayerIdByCharHandle, PLAYER_PED)
+		if okSelf and sampOk and myId then
+			worldValue = callAndExtractNumber(sampGetPlayerVirtualWorld, myId)
+		end
+	end
+	if not worldValue then
+		local now = os.clock()
+		if worldDetection.lastValue and (now - worldDetection.updatedAt) <= worldDetectionMaxAge then
+			if not minUpdatedAt or worldDetection.updatedAt >= minUpdatedAt then
+				worldValue = worldDetection.lastValue
+			end
+		end
+	end
+	if not worldValue then
+		local waitTarget = minUpdatedAt
+		if not waitTarget then
+			waitTarget = requestWorldIdViaChat()
+		end
+		if worldDetection.lastValue and waitTarget and worldDetection.updatedAt >= waitTarget then
+			worldValue = worldDetection.lastValue
+		elseif delayMs and delayMs > 0 then
+			local resolved = waitForWorldDetection(delayMs, waitTarget)
+			if resolved then worldValue = resolved end
+		end
+	end
+	if worldValue then
+		world = worldValue
+	end
+
+	return tonumber(world) or 0, tonumber(interior) or 0
 end
 
 function getBansPath()
@@ -1024,6 +1263,7 @@ imgui.OnFrame(function() return UpdateWindowState[0] end, function(player)
 	imgui.SetNextWindowPos(imgui.ImVec2(520, 260), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
 	imgui.SetNextWindowSize(imgui.ImVec2(520, computedHeight), imgui.Cond.Always)
 	imgui.Begin(updateTitleText, UpdateWindowState, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoScrollbar + imgui.WindowFlags.NoResize)
+	pushBodyFont()
 
 	imgui.Text(u8(string.format('Текущая версия: %s', CURRENT_VERSION)))
 	if updateAvailableVersion then
@@ -1037,7 +1277,7 @@ imgui.OnFrame(function() return UpdateWindowState[0] end, function(player)
 	imgui.Dummy(imgui.ImVec2(0, 8))
 	imgui.Separator()
 	imgui.Dummy(imgui.ImVec2(0, 6))
-	imgui.Text(u8'Список изменений:')
+	HeadingText(u8'Список изменений:')
 	imgui.Dummy(imgui.ImVec2(0, 4))
 
 	imgui.BeginChild('##update_notes', imgui.ImVec2(0, notesHeight), false, imgui.WindowFlags.NoScrollbar)
@@ -1084,6 +1324,7 @@ imgui.OnFrame(function() return UpdateWindowState[0] end, function(player)
 		end
 	end
 
+	popBodyFont()
 	imgui.End()
 end)
 
@@ -1106,6 +1347,7 @@ imgui.OnFrame(function() return WinState[0] end, function(player)
 	imgui.SetNextWindowPos(imgui.ImVec2(500,200), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
 	    imgui.SetNextWindowSize(imgui.ImVec2(980, 740), imgui.Cond.Always)
 	imgui.Begin(u8'BBot v2.0, давай побаним вместе!', WinState, imgui.WindowFlags.NoResize + imgui.WindowFlags.NoCollapse)
+	pushBodyFont()
 
 	    local isAnimationPlaying = false
 	    local uiAlpha = 1.0
@@ -1245,7 +1487,10 @@ imgui.OnFrame(function() return WinState[0] end, function(player)
 		1.00
 	))
 
-	if imgui.Button(label, imgui.ImVec2(fullWidth, 38)) then
+	pushHeadingFont()
+	local mainButtonClicked = imgui.Button(label, imgui.ImVec2(fullWidth, 38))
+	popHeadingFont()
+	if mainButtonClicked then
 		if not isRunning then
 			isRunning = true
 			addNotification(u8'Начал искать')
@@ -1503,7 +1748,9 @@ imgui.OnFrame(function() return WinState[0] end, function(player)
 
 						local currentTime = os.clock() * 1000
 						if (currentTime - lastCommandTime) >= commandCooldown then
-							sampSendChat(string.format("/gc %.2f %.2f %.2f 0 0", coord.x, coord.y, coord.z))
+							local world = tonumber(coord.world) or 0
+							local interior = tonumber(coord.interior) or 0
+							sampSendChat(string.format("/gc %.2f %.2f %.2f %d %d", coord.x, coord.y, coord.z, world, interior))
 							lastCommandTime = currentTime
 
 					local pointName = teleportNames[teleportIndex] and ffi.string(teleportNames[teleportIndex]) or string.format('Точка %d', teleportIndex)
@@ -1522,7 +1769,9 @@ imgui.OnFrame(function() return WinState[0] end, function(player)
 
 						local currentTime = os.clock() * 1000
 						if (currentTime - lastCommandTime) >= commandCooldown then
-							sampSendChat(string.format("/gc %.2f %.2f %.2f 0 0", coord.x, coord.y, coord.z))
+							local world = tonumber(coord.world) or 0
+							local interior = tonumber(coord.interior) or 0
+							sampSendChat(string.format("/gc %.2f %.2f %.2f %d %d", coord.x, coord.y, coord.z, world, interior))
 							lastCommandTime = currentTime
 
 					local pointName = teleportNames[teleportIndex] and ffi.string(teleportNames[teleportIndex]) or string.format('Точка %d', teleportIndex)
@@ -1626,7 +1875,7 @@ imgui.OnFrame(function() return WinState[0] end, function(player)
 	
 
 
-	imgui.Text(u8'Команда для бана бота')
+HeadingText(u8'Команда для бана бота')
 	imgui.PushItemWidth(-1)
 	local changed = imgui.InputText(u8'##ban_msg', banMessage, ffi.sizeof(banMessage))
 	if changed then saveSettings() end
@@ -1638,7 +1887,7 @@ imgui.Separator()
 imgui.Dummy(imgui.ImVec2(0, 6))
 
 -- Режим поиска ботов
-imgui.Text(u8'Режим поиска ботов:')
+HeadingText(u8'Режим поиска ботов:')
 imgui.Dummy(imgui.ImVec2(0, 4))
 do
     local modeAvailW = imgui.GetContentRegionAvail().x
@@ -1647,7 +1896,9 @@ do
         imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.50, 0.28, 0.88, 0.90))
         imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImVec4(0.60, 0.35, 0.98, 0.95))
         imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImVec4(0.70, 0.42, 1.00, 1.00))
+        pushHeadingFont()
         imgui.Button(u8'Idle', imgui.ImVec2(modeBtnW, 30))
+        popHeadingFont()
         if imgui.IsItemHovered() then
             imgui.BeginTooltip()
             imgui.Text(u8'Стандартный режим')
@@ -1671,7 +1922,9 @@ do
         imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.50, 0.28, 0.88, 0.90))
         imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImVec4(0.60, 0.35, 0.98, 0.95))
         imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImVec4(0.70, 0.42, 1.00, 1.00))
+        pushHeadingFont()
         imgui.Button(u8'Serch', imgui.ImVec2(modeBtnW, 30))
+        popHeadingFont()
         if imgui.IsItemHovered() then
             imgui.BeginTooltip()
             imgui.Text(u8'Последовательная проверка')
@@ -1696,7 +1949,7 @@ imgui.Dummy(imgui.ImVec2(0, 8))
 imgui.Separator()
 imgui.Dummy(imgui.ImVec2(0, 6))
 	
-	imgui.Text(u8'Горячие клавиши:')
+HeadingText(u8'Горячие клавиши:')
 	imgui.Dummy(imgui.ImVec2(0, 4))
 
 	local availWidth = imgui.GetContentRegionAvail().x
@@ -1717,6 +1970,7 @@ imgui.Dummy(imgui.ImVec2(0, 6))
 			waitingForBanKey = true
 		end
 	end
+	imgui.Dummy(imgui.ImVec2(0, 6))
 
 	imgui.Text(u8'Клавиша "Пропустить":')
 	imgui.SameLine(labelWidth)
@@ -1730,13 +1984,14 @@ imgui.Dummy(imgui.ImVec2(0, 6))
 			waitingForSkipKey = true
 		end
 	end
+	imgui.Dummy(imgui.ImVec2(0, 6))
 	
 	imgui.Dummy(imgui.ImVec2(0, 8))
 	imgui.Separator()
 	imgui.Dummy(imgui.ImVec2(0, 6))
 
 -- Фоновый режим и клавиша активации
-imgui.Text(u8'Фоновый режим:')
+HeadingText(u8'Фоновый режим:')
 imgui.SameLine()
 local bgEnabled = backgroundMode[0]
 if imgui.Checkbox(u8'##bg_mode', backgroundMode) then
@@ -1750,7 +2005,7 @@ if imgui.IsItemHovered() then
 end
 
 imgui.Dummy(imgui.ImVec2(0, 4))
-imgui.Text(u8'Клавиша активации:')
+HeadingText(u8'Клавиша активации:')
 imgui.SameLine(160.0)
 local actKeyName = vkeys.id_to_name(activationKey[0]) or string.format("0x%02X", activationKey[0])
 imgui.Text(actKeyName)
@@ -1767,7 +2022,7 @@ end
 	imgui.Dummy(imgui.ImVec2(0, 8))
 	imgui.Separator()
 	imgui.Dummy(imgui.ImVec2(0, 6))
-	imgui.Text(u8'Режим бана:')
+HeadingText(u8'Режим бана:')
 	imgui.Dummy(imgui.ImVec2(0, 4))
 	
 	local availWidth2 = imgui.GetContentRegionAvail().x
@@ -1782,7 +2037,10 @@ end
 		imgui.PushStyleColor(imgui.Col.Button, activeColor)
 		imgui.PushStyleColor(imgui.Col.ButtonHovered, hoverColor)
 		imgui.PushStyleColor(imgui.Col.ButtonActive, pressedColor)
-		if imgui.Button(u8'Auto Ban', imgui.ImVec2(banModeButtonWidth, 32)) then
+		pushHeadingFont()
+		local autoClicked = imgui.Button(u8'Auto Ban', imgui.ImVec2(banModeButtonWidth, 32))
+		popHeadingFont()
+		if autoClicked then
 			isAutoBan[0] = true
 			saveSettings()
 		end
@@ -1819,7 +2077,10 @@ end
 		imgui.PushStyleColor(imgui.Col.Button, activeColor)
 		imgui.PushStyleColor(imgui.Col.ButtonHovered, hoverColor)
 		imgui.PushStyleColor(imgui.Col.ButtonActive, pressedColor)
-		if imgui.Button(u8'Manual Ban (Рекамендуется)', imgui.ImVec2(banModeButtonWidth, 32)) then
+		pushHeadingFont()
+		local manualClicked = imgui.Button(u8'Manual Ban', imgui.ImVec2(banModeButtonWidth, 32))
+		popHeadingFont()
+		if manualClicked then
 			isAutoBan[0] = false
 			saveSettings()
 		end
@@ -1851,7 +2112,7 @@ end
 	imgui.Dummy(imgui.ImVec2(0, 6))
 
 	imgui.AlignTextToFramePadding()
-	imgui.Text(u8'Задержка обратного отсчета:')
+	HeadingText(u8'Задержка обратного отсчета:')
 	imgui.SameLine()
 	imgui.PushItemWidth(120)
 
@@ -1941,14 +2202,16 @@ end
 					local textW = imgui.CalcTextSize(header).x
 					local baseX = imgui.GetCursorPosX()
 					imgui.SetCursorPosX(baseX + math.max(0, (availX - textW) * 0.5))
-					imgui.Text(header)
+					HeadingText(header)
 					imgui.Dummy(imgui.ImVec2(0, 6))
 					local toDeleteIndex = nil
 					for i, coord in ipairs(teleportCoords) do
 						if not teleportNames[i] then
 							teleportNames[i] = new.char[64](u8(string.format('Точка %d', i)))
 						end
-						imgui.Text(u8(string.format('Коорд. #%d: (%.2f, %.2f, %.2f)', i, coord.x, coord.y, coord.z)))
+						local world = tonumber(coord.world) or 0
+						local interior = tonumber(coord.interior) or 0
+						imgui.Text(u8(string.format('Коорд. #%d: (%.2f, %.2f, %.2f) | Мир: %d | Интерьер: %d', i, coord.x, coord.y, coord.z, world, interior)))
 
 						local rowAvail = imgui.GetContentRegionAvail().x
 						local delBtnW = 110.0
@@ -1987,11 +2250,28 @@ end
 				local availX2 = imgui.GetContentRegionAvail().x
 				local baseX2 = imgui.GetCursorPosX()
 				imgui.SetCursorPosX(baseX2 + math.max(0, (availX2 - bottomButtonWidth) * 0.5))
-				if SecondaryButton(u8'Добавить текущие координаты', imgui.ImVec2(bottomButtonWidth, bottomButtonHeight)) then
-					local px, py, pz = getCharCoordinates(PLAYER_PED)
-					table.insert(teleportCoords, { x = px, y = py, z = pz })
-					teleportNames[#teleportCoords] = new.char[64](u8(string.format('Точка %d', #teleportCoords)))
-					saveCoords()
+				if SecondaryButton(u8(addCoordsInProgress and 'Сохранение...' or 'Добавить текущие координаты'), imgui.ImVec2(bottomButtonWidth, bottomButtonHeight)) then
+					if not addCoordsInProgress then
+						addCoordsInProgress = true
+						lua_thread.create(function()
+							local ok, err = pcall(function()
+								local px, py, pz = getCharCoordinates(PLAYER_PED)
+								local requestToken = requestWorldIdViaChat(true) or os.clock()
+								local world, interior = getCurrentWorldAndInterior(250, requestToken)
+								table.insert(teleportCoords, { x = px, y = py, z = pz, world = world, interior = interior })
+								teleportNames[#teleportCoords] = new.char[64](u8(string.format('Точка %d', #teleportCoords)))
+								saveCoords()
+								addNotification(u8'Координаты сохранены')
+							end)
+							if not ok then
+								print(string.format('[BBot] Ошибка сохранения координат: %s', tostring(err)))
+								addNotification(u8'Не удалось сохранить координаты')
+							end
+							addCoordsInProgress = false
+						end)
+					else
+						addNotification(u8'Подождите завершения предыдущего сохранения')
+					end
 				end
 			imgui.EndChild()
 		imgui.EndChild()
@@ -2073,14 +2353,20 @@ end
 				)
 
 				local text1 = u8'Привет, я Bbot!'
-
-				imgui.SetWindowFontScale(2.5)
-				local text1Size = imgui.CalcTextSize(text1)
-
 				local text2 = u8'Меня создали для помощи администрации, давай побаним ботов?'
-				imgui.SetWindowFontScale(1.25)
+
+				local fontLarge = fonts.welcomeLarge or fonts.default
+				local fontMedium = fonts.welcomeMedium or fonts.default
+				local fontLargeSize = fontLarge and fontLarge.FontSize or imgui.GetFontSize()
+				local fontMediumSize = fontMedium and fontMedium.FontSize or imgui.GetFontSize()
+
+				if fontLarge then imgui.PushFont(fontLarge) end
+				local text1Size = imgui.CalcTextSize(text1)
+				if fontLarge then imgui.PopFont() end
+
+				if fontMedium then imgui.PushFont(fontMedium) end
 				local text2Size = imgui.CalcTextSize(text2)
-				imgui.SetWindowFontScale(1.0)
+				if fontMedium then imgui.PopFont() end
 
 				local totalHeight = text1Size.y + text2Size.y + 30
 
@@ -2095,15 +2381,14 @@ end
 
 
 
-				imgui.SetWindowFontScale(2.5)
+				if fontLarge then imgui.PushFont(fontLarge) end
 				drawList:AddText(imgui.ImVec2(text1X, text1Y), textColor, text1)
-				imgui.SetWindowFontScale(1.0)
-
+				if fontLarge then imgui.PopFont() end
 				local text2Y = text1Y + text1Size.y + 30
 				local text2X = centerX - text2Size.x / 2
-				imgui.SetWindowFontScale(1.25)
+				if fontMedium then imgui.PushFont(fontMedium) end
 				drawList:AddText(imgui.ImVec2(text2X, text2Y), textColor, text2)
-				imgui.SetWindowFontScale(1.0)
+				if fontMedium then imgui.PopFont() end
 			end
 		end
 
@@ -2155,14 +2440,20 @@ end
 				)
 
 				local text1 = u8'С возвращением'
-
-				imgui.SetWindowFontScale(2.5)
-				local text1Size = imgui.CalcTextSize(text1)
-
 				local text2 = u8'Побаним ботов вместе!'
-				imgui.SetWindowFontScale(1.25)
+
+				local fontLarge = fonts.welcomeLarge or fonts.default
+				local fontMedium = fonts.welcomeMedium or fonts.default
+				local fontLargeSize = fontLarge and fontLarge.FontSize or imgui.GetFontSize()
+				local fontMediumSize = fontMedium and fontMedium.FontSize or imgui.GetFontSize()
+
+				if fontLarge then imgui.PushFont(fontLarge) end
+				local text1Size = imgui.CalcTextSize(text1)
+				if fontLarge then imgui.PopFont() end
+
+				if fontMedium then imgui.PushFont(fontMedium) end
 				local text2Size = imgui.CalcTextSize(text2)
-				imgui.SetWindowFontScale(1.0)
+				if fontMedium then imgui.PopFont() end
 
 				local totalHeight = text1Size.y + text2Size.y + 30
 
@@ -2175,18 +2466,18 @@ end
 
 				local textColor = imgui.GetColorU32Vec4(imgui.ImVec4(1.0, 1.0, 1.0, textAlpha))
 				
-				imgui.SetWindowFontScale(2.5)
+				if fontLarge then imgui.PushFont(fontLarge) end
 				drawList:AddText(imgui.ImVec2(text1X, text1Y), textColor, text1)
-				imgui.SetWindowFontScale(1.0)
-
+				if fontLarge then imgui.PopFont() end
 				local text2Y = text1Y + text1Size.y + 30
 				local text2X = centerX - text2Size.x / 2
-				imgui.SetWindowFontScale(1.25)
+				if fontMedium then imgui.PushFont(fontMedium) end
 				drawList:AddText(imgui.ImVec2(text2X, text2Y), textColor, text2)
-				imgui.SetWindowFontScale(1.0)
+				if fontMedium then imgui.PopFont() end
 			end
 		end
 		
+		popBodyFont()
 		imgui.End()
 end)
 
@@ -2198,7 +2489,8 @@ imgui.OnFrame(function() return isRunning end, function(player)
 	local interactiveUiOpen = (WinState and WinState[0]) or (DecisionOpen and DecisionOpen[0])
 	local quickFlags = imgui.WindowFlags.AlwaysAutoResize + imgui.WindowFlags.NoCollapse
 	imgui.Begin(u8'BBot — Телепорты', QuickTPState, quickFlags)
-		imgui.Text(u8'Быстрый телепорт')
+	pushBodyFont()
+		HeadingText(u8'Быстрый телепорт')
 		imgui.Dummy(imgui.ImVec2(0, 6))
 		if #teleportCoords == 0 then
 			imgui.Text(u8'Нет координат')
@@ -2207,11 +2499,16 @@ imgui.OnFrame(function() return isRunning end, function(player)
 			for i, coord in ipairs(teleportCoords) do
 				local nameStr = teleportNames[i] and ffi.string(teleportNames[i]) or string.format('Точка %d', i)
 
-				if imgui.Button(nameStr, imgui.ImVec2(btnWidth, 30)) then
+				pushHeadingFont()
+				local tpClicked = imgui.Button(nameStr, imgui.ImVec2(btnWidth, 30))
+				popHeadingFont()
+				if tpClicked then
 
 					local currentTime = os.clock() * 1000
 					if (currentTime - lastCommandTime) >= commandCooldown then
-						sampSendChat(string.format("/gc %.2f %.2f %.2f 0 0", coord.x, coord.y, coord.z))
+						local world = tonumber(coord.world) or 0
+						local interior = tonumber(coord.interior) or 0
+						sampSendChat(string.format("/gc %.2f %.2f %.2f %d %d", coord.x, coord.y, coord.z, world, interior))
 						lastCommandTime = currentTime
 
 
@@ -2222,6 +2519,7 @@ imgui.OnFrame(function() return isRunning end, function(player)
 				imgui.Dummy(imgui.ImVec2(0, 4))
 			end
 		end
+	popBodyFont()
 	imgui.End()
 end).HideCursor = function()
 
@@ -2237,6 +2535,7 @@ imgui.OnFrame(function() return DecisionOpen[0] end, function(player)
 	imgui.SetNextWindowPos(imgui.ImVec2(600,400), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
     imgui.SetNextWindowSize(imgui.ImVec2(450, 300), imgui.Cond.Always)
 	imgui.Begin(u8'BBot — Решение', DecisionOpen, imgui.WindowFlags.NoResize + imgui.WindowFlags.NoCollapse)
+	pushBodyFont()
 
 	imgui.BeginChild('##card_decision', imgui.ImVec2(0, 0), true, imgui.WindowFlags.NoScrollbar)
 	if pendingReport ~= nil then
@@ -2303,7 +2602,9 @@ imgui.OnFrame(function() return DecisionOpen[0] end, function(player)
 			imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.40, 0.40, 0.42, 0.60))
 			imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImVec4(0.40, 0.40, 0.42, 0.60))
 			imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImVec4(0.40, 0.40, 0.42, 0.60))
+			pushHeadingFont()
 			imgui.Button(banButtonLabel, imgui.ImVec2(buttonWidth, buttonHeight))
+			popHeadingFont()
 			imgui.PopStyleColor(3)
 		else
 
@@ -2313,7 +2614,9 @@ imgui.OnFrame(function() return DecisionOpen[0] end, function(player)
 			imgui.PushStyleColor(imgui.Col.Button, baseColor)
 			imgui.PushStyleColor(imgui.Col.ButtonHovered, hoverColor)
 			imgui.PushStyleColor(imgui.Col.ButtonActive, activeColor)
+			pushHeadingFont()
 			banButtonClicked = imgui.Button(banButtonLabel, imgui.ImVec2(buttonWidth, buttonHeight))
+			popHeadingFont()
 			imgui.PopStyleColor(3)
 		end
 		
@@ -2340,6 +2643,7 @@ imgui.OnFrame(function() return DecisionOpen[0] end, function(player)
 		end
 	end
 	imgui.EndChild()
+	popBodyFont()
 	imgui.End()
 end)
 
@@ -2356,6 +2660,7 @@ imgui.OnFrame(function() return lowDelayWarningState[0] end, function()
 	local windowFlags = imgui.WindowFlags.NoResize + imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoMove
 	
 	imgui.Begin(u8'Предупреждение', lowDelayWarningState, windowFlags)
+	pushBodyFont()
 
 	if not lowDelayWarningState[0] then
 		lowDelayWarningState[0] = true
@@ -2402,11 +2707,16 @@ imgui.OnFrame(function() return lowDelayWarningState[0] end, function()
 		imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.40, 0.40, 0.42, 0.60))
 		imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImVec4(0.40, 0.40, 0.42, 0.60))
 		imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImVec4(0.40, 0.40, 0.42, 0.60))
+		pushHeadingFont()
 		imgui.Button(buttonLabel, imgui.ImVec2(buttonWidth, buttonHeight))
+		popHeadingFont()
 		imgui.PopStyleColor(3)
 	else
 
-		if imgui.Button(u8'Продолжить', imgui.ImVec2(buttonWidth, buttonHeight)) then
+		pushHeadingFont()
+		local continueClicked = imgui.Button(u8'Продолжить', imgui.ImVec2(buttonWidth, buttonHeight))
+		popHeadingFont()
+		if continueClicked then
 
 			lowDelayConfirmed = true
 			lowDelayWarningState[0] = false
@@ -2414,6 +2724,7 @@ imgui.OnFrame(function() return lowDelayWarningState[0] end, function()
 		end
 	end
 	
+	popBodyFont()
 	imgui.End()
 end)
 
@@ -2445,6 +2756,7 @@ imgui.OnFrame(function() return BanLoggerState[0] end, function(player)
 	imgui.SetNextWindowPos(imgui.ImVec2(500, 200), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
 	imgui.SetNextWindowSize(imgui.ImVec2(800, 650), imgui.Cond.Always)
 	imgui.Begin(u8'Логер банов', BanLoggerState, imgui.WindowFlags.NoResize + imgui.WindowFlags.NoCollapse)
+	pushBodyFont()
 
 	local bans = loadBans()
 	local groupedBans = groupBansByDate(bans)
@@ -2587,7 +2899,9 @@ imgui.OnFrame(function() return BanLoggerState[0] end, function(player)
 					imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImVec4(
 						animColor.x * 1.3, animColor.y * 1.3, animColor.z * 1.3, 1.00
 					))
+					pushHeadingFont()
 					imgui.Button(buttonText, imgui.ImVec2(buttonWidth, 32))
+					popHeadingFont()
 					imgui.PopStyleColor(3)
 				else
 
@@ -2622,6 +2936,7 @@ imgui.OnFrame(function() return BanLoggerState[0] end, function(player)
 		imgui.EndChild()
 	end
 	
+	popBodyFont()
 	imgui.End()
 end)
 
@@ -2733,8 +3048,7 @@ imgui.OnFrame(function() return #notifications > 0 end, function()
 	imgui.Begin("##notifications", NotificationWindowState, windowFlags)
 
 	local notificationWidth = 400.0
-	local notificationHeight = 50.0
-	local notificationSpacing = 8.0
+	local notificationLineSpacing = 16.0
 	local bottomMargin = 50.0
 
 	local activeNotifications = {}
@@ -2781,127 +3095,67 @@ imgui.OnFrame(function() return #notifications > 0 end, function()
 		end
 
 
-		local positionFromBottom = #activeNotifications - idx + 1
+		-- newest notifications occupy bottom slots
+		local positionFromBottom = idx
 
-		local baseY = screenHeight - bottomMargin - (notificationHeight + notificationSpacing) * positionFromBottom
+		local baseY = screenHeight - bottomMargin - notificationLineSpacing * positionFromBottom
 		local notificationX = (screenWidth - notificationWidth) / 2.0
 		
 		local slideDistance = 80.0
-		local shiftDistance = notificationHeight + notificationSpacing
 		local fadeOutDistance = 30.0
 		
 		local notificationY = baseY
+
+		-- Calculate upward shift from newer notifications appearing
+		local upwardShift = 0.0
+		for newerIdx = 1, idx - 1 do
+			local newerNotif = activeNotifications[newerIdx]
+			if newerNotif then
+				local newerElapsed = currentTime - newerNotif.startTime
+				if newerElapsed < notificationFadeIn then
+					-- Newer notification is appearing, shift this one up proportionally
+					local newerFadeProgress = newerElapsed / notificationFadeIn
+					upwardShift = upwardShift + (notificationLineSpacing * newerFadeProgress)
+				else
+					-- Newer notification has finished appearing, this one should be fully shifted
+					upwardShift = upwardShift + notificationLineSpacing
+				end
+			end
+		end
 
 		if elapsed < notificationFadeIn then
 
 			local fadeProgress = elapsed / notificationFadeIn
 			local offsetBelow = slideDistance * (1.0 - fadeProgress)
-			notificationY = baseY + offsetBelow
+			notificationY = baseY - upwardShift + offsetBelow
 
-			local totalShiftDown = 0.0
-			for otherIdx = 1, idx - 1 do
-				local otherNotif = activeNotifications[otherIdx]
-				if otherNotif then
-					local otherElapsed = currentTime - otherNotif.startTime
-					local otherTotalDuration = notificationFadeIn + notificationDuration + notificationFadeOut
-					local otherFadeOutStart = notificationFadeIn + notificationDuration
-
-					if otherElapsed >= otherFadeOutStart and otherElapsed < otherTotalDuration then
-
-						local fadeOutProgress = (otherElapsed - otherFadeOutStart) / notificationFadeOut
-
-						totalShiftDown = totalShiftDown + (shiftDistance * fadeOutProgress)
-					elseif otherElapsed >= otherTotalDuration then
-
-						totalShiftDown = totalShiftDown + shiftDistance
-					end
-				end
-			end
-
-
-			notificationY = notificationY + totalShiftDown
 		elseif elapsed < notificationFadeIn + notificationDuration then
-
-			notificationY = baseY
-
-
-			local totalShiftUp = 0.0
-			for otherIdx = idx + 1, #activeNotifications do
-				local otherNotif = activeNotifications[otherIdx]
-				if otherNotif then
-					local otherElapsed = currentTime - otherNotif.startTime
-					if otherElapsed < notificationFadeIn then
-
-						local fadeProgress = otherElapsed / notificationFadeIn
-						totalShiftUp = totalShiftUp + (shiftDistance * fadeProgress)
-					end
-				end
-			end
-
-
-			local totalShiftDown = 0.0
-			for otherIdx = 1, idx - 1 do
-				local otherNotif = activeNotifications[otherIdx]
-				if otherNotif then
-					local otherElapsed = currentTime - otherNotif.startTime
-					local otherTotalDuration = notificationFadeIn + notificationDuration + notificationFadeOut
-					local otherFadeOutStart = notificationFadeIn + notificationDuration
-
-					if otherElapsed >= otherFadeOutStart and otherElapsed < otherTotalDuration then
-
-						local fadeOutProgress = (otherElapsed - otherFadeOutStart) / notificationFadeOut
-
-						totalShiftDown = totalShiftDown + (shiftDistance * fadeOutProgress)
-					elseif otherElapsed >= otherTotalDuration then
-
-						totalShiftDown = totalShiftDown + shiftDistance
-					end
-				end
-			end
-
-
-			notificationY = baseY - totalShiftUp + totalShiftDown
+			notificationY = baseY - upwardShift
 		else
 
 			local fadeOutStart = notificationFadeIn + notificationDuration
 			local fadeOutProgress = (elapsed - fadeOutStart) / notificationFadeOut
 			local offsetUp = fadeOutDistance * fadeOutProgress
-			notificationY = baseY - offsetUp
+			notificationY = baseY - upwardShift - offsetUp
 		end
-
-		local bgColor = imgui.GetColorU32Vec4(imgui.ImVec4(0.0, 0.0, 0.0, 0.7 * alpha))
-		drawList:AddRectFilled(
-			imgui.ImVec2(notificationX, notificationY),
-			imgui.ImVec2(notificationX + notificationWidth, notificationY + notificationHeight),
-			bgColor,
-			8.0
-		)
-
-		local borderColor = imgui.GetColorU32Vec4(imgui.ImVec4(0.50, 0.28, 0.88, 0.9 * alpha))
-		drawList:AddRect(
-			imgui.ImVec2(notificationX, notificationY),
-			imgui.ImVec2(notificationX + notificationWidth, notificationY + notificationHeight),
-			borderColor,
-			8.0,
-			0,
-			2.0
-		)
 
 		local textColor = imgui.GetColorU32Vec4(imgui.ImVec4(1.0, 1.0, 1.0, alpha))
 
 		local text = notif.text
-		imgui.SetWindowFontScale(1.2)
+		if fonts.notification then imgui.PushFont(fonts.notification) end
+		imgui.SetWindowFontScale(1.25)
 		local textSize = imgui.CalcTextSize(text)
 		imgui.SetWindowFontScale(1.0)
 
 		local textX = notificationX + (notificationWidth - textSize.x) / 2.0
-		local textY = notificationY + (notificationHeight - textSize.y) / 2.0
+		local textY = notificationY
 
-		local shadowColor = imgui.GetColorU32Vec4(imgui.ImVec4(0.0, 0.0, 0.0, 0.8 * alpha))
-		imgui.SetWindowFontScale(1.2)
+		local shadowColor = imgui.GetColorU32Vec4(imgui.ImVec4(0.0, 0.0, 0.0, 0.6 * alpha))
+		imgui.SetWindowFontScale(1.25)
 		drawList:AddText(imgui.ImVec2(textX + 2, textY + 2), shadowColor, text)
 		drawList:AddText(imgui.ImVec2(textX, textY), textColor, text)
 		imgui.SetWindowFontScale(1.0)
+		if fonts.notification then imgui.PopFont() end
 	end
 	
 	imgui.End()
@@ -2914,6 +3168,7 @@ function main()
     while not isSampLoaded() do wait(200) end
     while not isSampAvailable() do wait(200) end
 	loadSettings()
+	downloadFontIfNeeded()
 	loadCoords()
 	ensureBansFile()
 	checkForUpdates()
@@ -2984,6 +3239,17 @@ function main()
 			sampAddChatMessage(u8:decode(msg, 'CP1251'), -1)
 		end
 	end)
+
+sampev.onServerMessage = function(color, message)
+	captureWorldFromMessage(message)
+	-- Скрываем сообщение о /setvw из чата, но все равно парсим world ID
+	if type(message) == 'string' then
+		local lower = message:lower()
+		if lower:match('usage:%s*/setvw') or lower:match('current%s+world:') then
+			return false
+		end
+	end
+end
 
 	sampev.onTogglePlayerSpectating = function(playerid, bool)
 
@@ -3163,7 +3429,7 @@ function main()
 	wait(-1)
 end
 
--- Ensure MoonLoader can find the entry point in the global environment
+
 _G.main = main
 
 function getPressedKey()
