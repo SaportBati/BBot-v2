@@ -9,7 +9,7 @@ local sampev = require 'samp.events'
 local vkeys = require 'vkeys'
 local dlstatus = require('moonloader').download_status
 
-local CURRENT_VERSION = "2.1"
+local CURRENT_VERSION = "2.2"
 local VERSION_INFO_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/BbotVersion.ini'
 local SCRIPT_DOWNLOAD_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/Bbot%20v2.0.lua'
 local FONT_DOWNLOAD_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/EagleSans-Reg.ttf'
