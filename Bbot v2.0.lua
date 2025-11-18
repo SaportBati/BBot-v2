@@ -9,7 +9,7 @@ local sampev = require 'samp.events'
 local vkeys = require 'vkeys'
 local dlstatus = require('moonloader').download_status
 
-local CURRENT_VERSION = "2.1"
+local CURRENT_VERSION = "2.0"
 local VERSION_INFO_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/BbotVersion.ini'
 local SCRIPT_DOWNLOAD_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/Bbot%20v2.0.lua'
 
@@ -398,7 +398,12 @@ end
 
 local function showUpdateChatHint()
 	if type(sampAddChatMessage) ~= 'function' then return end
-	local text = u8('[BBot v2.0] Есть обновление! Для просмотра введите /bupdate')
+	local colorBotTag = '{AA77FF}'
+	local colorNormal = '{CCCCCC}'
+	local colorAccent = '{BB88FF}'
+	local colorReset = '{FFFFFF}'
+	local text = u8(string.format('%s[BBot v%s]%s %sЕсть обновление!%s Для просмотра введите %s/bupdate%s',
+		colorBotTag, CURRENT_VERSION, colorNormal, colorAccent, colorNormal, colorAccent, colorReset))
 	sampAddChatMessage(u8:decode(text, 'CP1251'), -1)
 end
 
@@ -446,6 +451,19 @@ local function finalizeVersionCheck(remoteVersion, notes)
 	resetUpdateFlags()
 end
 
+local function normalizeEncoding(str)
+	if type(str) ~= 'string' or str == '' then return '' end
+	if isValidUtf8(str) then
+		local ok, decoded = pcall(function()
+			return u8:decode(str)
+		end)
+		if ok and decoded then
+			return decoded
+		end
+	end
+	return str
+end
+
 local function handleVersionFile(path)
 	local file = io.open(path, "r")
 	if not file then
@@ -458,6 +476,7 @@ local function handleVersionFile(path)
 	for line in file:lines() do
 		line = line:gsub("^\239\187\191", "")
 		line = line:gsub("\r", "")
+		line = normalizeEncoding(line)
 		table.insert(lines, line)
 		if #lines > 100 then break end
 	end
