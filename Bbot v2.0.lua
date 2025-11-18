@@ -7,6 +7,21 @@ local u8 = encoding.UTF8
 local new = imgui.new
 local sampev = require 'samp.events'
 local vkeys = require 'vkeys'
+local dlstatus = require('moonloader').download_status
+
+local CURRENT_VERSION = "2.0"
+local VERSION_INFO_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/BbotVersion.ini'
+local SCRIPT_DOWNLOAD_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/Bbot%20v2.0.lua'
+
+local UPDATE_DEBUG_MESSAGES = false
+
+local function sendUpdateMessage(text)
+	if not UPDATE_DEBUG_MESSAGES then return end
+	if type(sampAddChatMessage) ~= 'function' or not text or text == '' then return end
+	local prefixed = string.format('{AA77FF}[BBot Update]{FFFFFF} %s', text)
+	local encoded = u8:encode(prefixed)
+	sampAddChatMessage(u8:decode(encoded, 'CP1251'), -1)
+end
 
 -- Central environment table to reduce upvalues in closures
 local BB = {}
@@ -78,6 +93,17 @@ welcomeAnimationJustCompleted = false
 returnAnimationShown = false
 returnAnimationStartTime = 0
 banMessage = new.char[128](u8'/ban {BotName} 30 чит')
+UpdateWindowState = new.bool(false)
+updateInfoLines = {}
+updateTitleText = u8'Доступно обновление BBot'
+updateAvailableVersion = nil
+updateCheckInProgress = false
+updateDownloadInProgress = false
+updateDownloadCompleted = false
+updateDownloadMessage = nil
+updatePromptNotificationShown = false
+versionFileProcessed = false
+deferredUpdateVersion = ''
 
 -- Поисковые режимы: 'idle' (как сейчас), 'serch' (последовательная проверка /re)
 searchMode = 'idle'
@@ -115,10 +141,10 @@ hoverAlpha = new.float(0.85)
 animationTime = 0.0
 lastFrameTime = os.clock()
 
--- Окно обновления и информация о changelog из ini
-UpdateWindowState = new.bool(false)
-updateInfoLines = {}
-updateTitleText = u8'Доступно обновление BBot'
+local function trim(str)
+	if type(str) ~= 'string' then return '' end
+	return (str:gsub('^%s+', ''):gsub('%s+$', ''))
+end
 
 function applyUiTheme()
 	local style = imgui.GetStyle()
@@ -358,38 +384,178 @@ function getSettingsPath()
 	return getConfigDir() .. "\\settings.txt"
 end
 
-function getUpdateIniPath()
-    return getConfigDir() .. "\\update.ini"
+function getVersionTempPath()
+	return getConfigDir() .. "\\BbotVersion.ini"
 end
 
-function loadUpdateInfoFromIni()
-    updateInfoLines = {}
-    local path = getUpdateIniPath()
-    if not doesFileExist(path) then return end
-    local f = io.open(path, 'r')
-    if not f then return end
-    for line in f:lines() do
-        -- Убираем возможный BOM и пробелы
-        line = line:gsub("^\239\187\191", "")
-        line = line:gsub("^%s+", ""):gsub("%s+$", "")
-        if line ~= '' then
-            table.insert(updateInfoLines, line)
-        end
-    end
-    f:close()
+local function deferUpdateReminder()
+	if not updateAvailableVersion then return end
+	deferredUpdateVersion = updateAvailableVersion
+	saveSettings()
+	showUpdateChatHint()
+	UpdateWindowState[0] = false
 end
 
-function openUpdateWindow(optionalTitle)
-    if optionalTitle and optionalTitle ~= '' then
-        updateTitleText = u8(optionalTitle)
-    else
-        updateTitleText = u8'Доступно обновление BBot'
-    end
-    -- Попробуем подгрузить changelog из ini, если еще не загружено
-    if #updateInfoLines == 0 then
-        loadUpdateInfoFromIni()
-    end
-    UpdateWindowState[0] = true
+local function showUpdateChatHint()
+	if type(sampAddChatMessage) ~= 'function' then return end
+	local text = u8('[BBot v2.0] Есть обновление! Для просмотра введите /bupdate')
+	sampAddChatMessage(u8:decode(text, 'CP1251'), -1)
+end
+
+local function resetUpdateFlags()
+	updateCheckInProgress = false
+end
+
+local function finalizeVersionCheck(remoteVersion, notes)
+	if not remoteVersion or remoteVersion == '' then
+		sendUpdateMessage('Файл версии получен, но строка с номером пустая.')
+		resetUpdateFlags()
+		return
+	end
+
+	if remoteVersion ~= CURRENT_VERSION then
+		if deferredUpdateVersion ~= '' and deferredUpdateVersion ~= remoteVersion then
+			deferredUpdateVersion = ''
+			saveSettings()
+		end
+		updateAvailableVersion = remoteVersion
+		updateTitleText = u8(string.format('BBot v%s — доступно обновление', remoteVersion))
+		updateInfoLines = notes or {}
+		if deferredUpdateVersion == remoteVersion then
+			UpdateWindowState[0] = false
+			showUpdateChatHint()
+		else
+			UpdateWindowState[0] = true
+			if not updatePromptNotificationShown then
+				addNotification(string.format(u8'Доступна версия %s. Открой окно обновления.', remoteVersion))
+				updatePromptNotificationShown = true
+			end
+		end
+		sendUpdateMessage(string.format('Найдена новая версия: %s (текущая: %s)', remoteVersion, CURRENT_VERSION))
+	else
+		updateAvailableVersion = nil
+		updateInfoLines = {}
+		updateTitleText = u8'BBot — обновления'
+		UpdateWindowState[0] = false
+		sendUpdateMessage('Проверка завершена: установлена актуальная версия.')
+		if deferredUpdateVersion ~= '' then
+			deferredUpdateVersion = ''
+			saveSettings()
+		end
+	end
+	resetUpdateFlags()
+end
+
+local function handleVersionFile(path)
+	local file = io.open(path, "r")
+	if not file then
+		sendUpdateMessage('Не удалось открыть временный файл версии.')
+		resetUpdateFlags()
+		return
+	end
+
+	local lines = {}
+	for line in file:lines() do
+		line = line:gsub("^\239\187\191", "")
+		line = line:gsub("\r", "")
+		table.insert(lines, line)
+		if #lines > 100 then break end
+	end
+	file:close()
+
+	if #lines == 0 then
+		sendUpdateMessage('Файл версии пустой.')
+		resetUpdateFlags()
+		return
+	end
+
+	local remoteVersion = trim(lines[1])
+	sendUpdateMessage(string.format('Версия в файле: "%s"', remoteVersion ~= '' and remoteVersion or 'пусто'))
+	local notes = {}
+	for i = 2, #lines do
+		local note = trim(lines[i])
+		if note ~= '' then
+			table.insert(notes, note)
+		end
+	end
+
+	finalizeVersionCheck(remoteVersion, notes)
+end
+
+function checkForUpdates()
+	if updateCheckInProgress then return end
+	updateCheckInProgress = true
+	versionFileProcessed = false
+	sendUpdateMessage('Запускаю проверку обновлений...')
+
+	local tempPath = getVersionTempPath()
+	if doesFileExist(tempPath) then
+		os.remove(tempPath)
+	end
+
+	downloadUrlToFile(VERSION_INFO_URL, tempPath, function(id, status)
+		if status == dlstatus.STATUS_ENDDOWNLOADDATA then
+			sendUpdateMessage('Файл версии скачан, начинаю разбор...')
+			lua_thread.create(function()
+				handleVersionFile(tempPath)
+			end)
+		elseif status == dlstatus.STATUSEX_ENDDOWNLOAD then
+			if not doesFileExist(tempPath) then
+				sendUpdateMessage('Загрузка файла версии завершилась с ошибкой.')
+				resetUpdateFlags()
+			end
+		else
+			sendUpdateMessage(string.format('Статус загрузки файла версии: %s', tostring(status)))
+		end
+	end)
+end
+
+local function finishUpdateDownload(success, message)
+	updateDownloadInProgress = false
+	if success then
+		updateDownloadCompleted = true
+		updateDownloadMessage = message or u8'Обновление успешно установлено.'
+		sendUpdateMessage('Обновление скачано и сохранено. Перезапусти BBot.')
+		if deferredUpdateVersion ~= '' then
+			deferredUpdateVersion = ''
+			saveSettings()
+		end
+	else
+		updateDownloadCompleted = false
+		updateDownloadMessage = message
+		sendUpdateMessage(message and ('Ошибка обновления: ' .. message) or 'Не удалось загрузить обновление.')
+	end
+end
+
+function startUpdateDownload()
+	if updateDownloadInProgress then return end
+	updateDownloadInProgress = true
+	updateDownloadCompleted = false
+	updateDownloadMessage = nil
+	sendUpdateMessage(string.format('Начинаю скачивание версии %s...', updateAvailableVersion or '?'))
+
+	local scriptInfo = thisScript()
+	local scriptPath = scriptInfo and scriptInfo.path
+	if not scriptPath or scriptPath == '' then
+		finishUpdateDownload(false, u8'Не удалось определить путь скрипта.')
+		sendUpdateMessage('Не удалось определить путь текущего скрипта.')
+		return
+	end
+
+	downloadUrlToFile(SCRIPT_DOWNLOAD_URL, scriptPath, function(id, status)
+		if status == dlstatus.STATUS_ENDDOWNLOADDATA then
+			finishUpdateDownload(true, u8'Файл заменён. Перезапусти скрипт (/reloadall).')
+			addNotification(u8'BBot обновлён. Перезапусти MoonLoader.')
+		elseif status == dlstatus.STATUSEX_ENDDOWNLOAD then
+			if not doesFileExist(scriptPath) then
+				finishUpdateDownload(false, u8'Не удалось скачать файл обновления.')
+			else
+				sendUpdateMessage('Драйвер скачивания сообщил об окончании с предупреждением.')
+			end
+		else
+			sendUpdateMessage(string.format('Статус загрузки обновления: %s', tostring(status)))
+		end
+	end)
 end
 
 function ensureConfigFile()
@@ -412,6 +578,7 @@ function ensureConfigFile()
 			f:write("SearchMode=idle\n")
 			f:write("BackgroundMode=false\n")
 			f:write("ActivationKey=82\n")
+			f:write("DeferredUpdateVersion=\n")
 			f:close()
 		end
 	end
@@ -523,6 +690,8 @@ function loadSettings()
 		elseif key == 'ActivationKey' and value then
 			local v = tonumber(value)
 			if v then activationKey[0] = v end
+		elseif key == 'DeferredUpdateVersion' and value then
+			deferredUpdateVersion = value
 		end
 	end
 	f:close()
@@ -544,6 +713,7 @@ function saveSettings()
 	f:write("SearchMode=" .. tostring(searchMode) .. "\n")
 	f:write("BackgroundMode=" .. tostring(backgroundMode[0]) .. "\n")
 	f:write("ActivationKey=" .. tostring(activationKey[0]) .. "\n")
+	f:write("DeferredUpdateVersion=" .. tostring(deferredUpdateVersion or '') .. "\n")
 	f:close()
 end
 
@@ -818,6 +988,85 @@ function performBan()
 	lastDecisionCloseTime = os.clock() * 1000
     banOccurredFlag = true
 end
+
+imgui.OnFrame(function() return UpdateWindowState[0] end, function(player)
+	if not themeApplied then
+		applyUiTheme()
+		themeApplied = true
+	end
+
+	local infoCount = updateInfoLines and #updateInfoLines or 0
+	local lineHeight = imgui.GetTextLineHeightWithSpacing()
+	local notesHeight = math.min(320.0, math.max(120.0, lineHeight * math.max(infoCount, 1) + 40.0))
+	local minWindowHeight = 320.0
+	local maxWindowHeight = 620.0
+	local computedHeight = math.max(minWindowHeight, math.min(maxWindowHeight, 180.0 + notesHeight))
+
+	imgui.SetNextWindowPos(imgui.ImVec2(520, 260), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
+	imgui.SetNextWindowSize(imgui.ImVec2(520, computedHeight), imgui.Cond.Always)
+	imgui.Begin(updateTitleText, UpdateWindowState, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoScrollbar + imgui.WindowFlags.NoResize)
+
+	imgui.Text(u8(string.format('Текущая версия: %s', CURRENT_VERSION)))
+	if updateAvailableVersion then
+		imgui.SameLine()
+		imgui.Text(u8(string.format('Новая версия: %s', updateAvailableVersion)))
+	else
+		imgui.SameLine()
+		imgui.Text(u8'Обновления не найдены')
+	end
+
+	imgui.Dummy(imgui.ImVec2(0, 8))
+	imgui.Separator()
+	imgui.Dummy(imgui.ImVec2(0, 6))
+	imgui.Text(u8'Список изменений:')
+	imgui.Dummy(imgui.ImVec2(0, 4))
+
+	imgui.BeginChild('##update_notes', imgui.ImVec2(0, notesHeight), false, imgui.WindowFlags.NoScrollbar)
+	if updateInfoLines and #updateInfoLines > 0 then
+		for _, line in ipairs(updateInfoLines) do
+			imgui.Text(u8(line))
+		end
+	else
+		imgui.Text(u8'Описание обновления отсутствует.')
+	end
+	imgui.EndChild()
+
+	imgui.Dummy(imgui.ImVec2(0, 10))
+	if updateDownloadMessage then
+		local color = updateDownloadCompleted and imgui.ImVec4(0.30, 0.75, 0.40, 1.0) or imgui.ImVec4(0.95, 0.35, 0.38, 1.0)
+		imgui.TextColored(color, updateDownloadMessage)
+		imgui.Dummy(imgui.ImVec2(0, 6))
+	end
+
+	local buttonWidth = 200
+	local buttonSpacing = 12
+	local totalWidth = buttonWidth * 2 + buttonSpacing
+	local regionWidth = imgui.GetWindowContentRegionWidth()
+	local offsetX = math.max(0, (regionWidth - totalWidth) * 0.5)
+	imgui.SetCursorPosX(imgui.GetCursorPosX() + offsetX)
+
+	if updateDownloadInProgress then
+		imgui.Text(u8'Скачивание обновления, пожалуйста подождите...')
+	else
+		if updateAvailableVersion then
+			local baseColor = imgui.ImVec4(0.30, 0.70, 0.40, 0.90)
+			local clicked = AnimatedButton(u8'Обновить сейчас', imgui.ImVec2(buttonWidth, 34), baseColor, 1.5)
+			if clicked then
+				startUpdateDownload()
+			end
+			imgui.SameLine(0, buttonSpacing)
+			if SecondaryButton(u8'Позже', imgui.ImVec2(buttonWidth, 34)) then
+				deferUpdateReminder()
+			end
+		else
+			if SecondaryButton(u8'Закрыть', imgui.ImVec2(buttonWidth, 34)) then
+				UpdateWindowState[0] = false
+			end
+		end
+	end
+
+	imgui.End()
+end)
 
 
 imgui.OnFrame(function() return WinState[0] end, function(player)
@@ -1644,6 +1893,13 @@ end
 		WinState[0] = false
 		BanLoggerState[0] = true
 	end
+	if updateAvailableVersion then
+		imgui.Dummy(imgui.ImVec2(0, 6))
+		local label = string.format(u8'Обновление v%s', updateAvailableVersion)
+		if SecondaryButton(label, imgui.ImVec2(bottomBtnWidth, bottomBtnHeight)) then
+			UpdateWindowState[0] = true
+		end
+	end
 
 		imgui.EndChild()
 		imgui.SameLine()
@@ -1954,6 +2210,11 @@ end).HideCursor = function()
 end
 
 imgui.OnFrame(function() return DecisionOpen[0] end, function(player)
+	if not themeApplied then
+		applyUiTheme()
+		themeApplied = true
+	end
+
 	imgui.SetNextWindowPos(imgui.ImVec2(600,400), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
     imgui.SetNextWindowSize(imgui.ImVec2(450, 300), imgui.Cond.Always)
 	imgui.Begin(u8'BBot — Решение', DecisionOpen, imgui.WindowFlags.NoResize + imgui.WindowFlags.NoCollapse)
@@ -2135,53 +2396,6 @@ imgui.OnFrame(function() return lowDelayWarningState[0] end, function()
 	end
 	
 	imgui.End()
-end)
-
-imgui.OnFrame(function() return UpdateWindowState[0] end, function()
-    local screenWidth, screenHeight = getScreenResolution()
-    local windowWidth = 640.0
-    local windowHeight = 420.0
-
-    imgui.SetNextWindowPos(imgui.ImVec2(screenWidth / 2, screenHeight / 2), imgui.Cond.Always, imgui.ImVec2(0.5, 0.5))
-    imgui.SetNextWindowSize(imgui.ImVec2(windowWidth, windowHeight), imgui.Cond.Always)
-
-    local windowFlags = imgui.WindowFlags.NoResize + imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoMove
-    imgui.Begin(updateTitleText, UpdateWindowState, windowFlags)
-
-    imgui.Dummy(imgui.ImVec2(0, 6))
-    imgui.Text(u8'Доступна новая версия скрипта. Рекомендуется обновиться.')
-    imgui.Dummy(imgui.ImVec2(0, 6))
-    imgui.Separator()
-    imgui.Dummy(imgui.ImVec2(0, 6))
-
-    -- Содержимое changelog
-    local listAvail = imgui.GetContentRegionAvail()
-    local footerReserved = 48.0
-    imgui.BeginChild('##update_changelog', imgui.ImVec2(listAvail.x, listAvail.y - footerReserved), true, imgui.WindowFlags.NoScrollbar)
-        if #updateInfoLines == 0 then
-            imgui.Text(u8'Нет описания изменений')
-        else
-            for _, line in ipairs(updateInfoLines) do
-                imgui.BulletText(u8(line))
-            end
-        end
-    imgui.EndChild()
-
-    imgui.Dummy(imgui.ImVec2(0, 8))
-    local availWidth = imgui.GetContentRegionAvail().x
-    local spacing = 12.0
-    local btnW = (availWidth - spacing) / 2
-    local btnH = 34.0
-
-    if imgui.Button(u8'Обновить', imgui.ImVec2(btnW, btnH)) then
-        UpdateWindowState[0] = false
-    end
-    imgui.SameLine()
-    if SecondaryButton(u8'Позже', imgui.ImVec2(btnW, btnH)) then
-        UpdateWindowState[0] = false
-    end
-
-    imgui.End()
 end)
 
 local prevWinState = false
@@ -2683,12 +2897,7 @@ function main()
 	loadSettings()
 	loadCoords()
 	ensureBansFile()
-
-	-- Автоподсказка об обновлении, если есть update.ini с описанием
-	loadUpdateInfoFromIni()
-	if #updateInfoLines > 0 then
-		openUpdateWindow(u8'Доступно обновление BBot')
-	end
+	checkForUpdates()
 
 	if type(sampAddChatMessage) == 'function' then
 
@@ -2744,6 +2953,17 @@ function main()
 	end)
 	sampRegisterChatCommand('skipbind', function(param)
 		waitingForSkipKey = true
+	end)
+	sampRegisterChatCommand('bupdate', function()
+		if updateAvailableVersion then
+			UpdateWindowState[0] = true
+		elseif updateCheckInProgress then
+			local msg = u8('[BBot v2.0] Идёт проверка обновлений...')
+			sampAddChatMessage(u8:decode(msg, 'CP1251'), -1)
+		else
+			local msg = u8('[BBot v2.0] Обновлений нет.')
+			sampAddChatMessage(u8:decode(msg, 'CP1251'), -1)
+		end
 	end)
 
 	sampev.onTogglePlayerSpectating = function(playerid, bool)
