@@ -15,7 +15,7 @@ local sampev = require 'samp.events'
 local vkeys = require 'vkeys'
 local dlstatus = require('moonloader').download_status
 
-local CURRENT_VERSION = "2.5"
+local CURRENT_VERSION = "2.6"
 local VERSION_INFO_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/BbotVersion.ini'
 local SCRIPT_DOWNLOAD_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/Bbot%20v2.0.lua'
 local FONT_DOWNLOAD_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/EagleSans-Reg.ttf'
@@ -199,7 +199,6 @@ updateDownloadMessage = nil
 updatePromptNotificationShown = false
 versionFileProcessed = false
 deferredUpdateVersion = ''
-jokeMessageSent = false
 
 -- Поисковые режимы: 'idle' (как сейчас), 'serch' (последовательная проверка /re)
 searchMode = 'idle'
@@ -915,7 +914,6 @@ function ensureConfigFile()
 			f:write("BackgroundMode=false\n")
 			f:write("ActivationKey=82\n")
 			f:write("DeferredUpdateVersion=\n")
-			f:write("JokeMessageSent=false\n")
 			f:close()
 		end
 	end
@@ -1029,13 +1027,6 @@ function loadSettings()
 			if v then activationKey[0] = v end
 		elseif key == 'DeferredUpdateVersion' and value then
 			deferredUpdateVersion = value
-		elseif key == 'JokeMessageSent' and value then
-			local v = value:lower()
-			if v == "true" or v == "1" then
-				jokeMessageSent = true
-			else
-				jokeMessageSent = false
-			end
 		end
 	end
 	f:close()
@@ -1058,7 +1049,6 @@ function saveSettings()
 	f:write("BackgroundMode=" .. tostring(backgroundMode[0]) .. "\n")
 	f:write("ActivationKey=" .. tostring(activationKey[0]) .. "\n")
 	f:write("DeferredUpdateVersion=" .. tostring(deferredUpdateVersion or '') .. "\n")
-	f:write("JokeMessageSent=" .. tostring(jokeMessageSent) .. "\n")
 	f:close()
 end
 
@@ -2593,26 +2583,8 @@ HeadingText(u8'Режим бана:')
 					bgColor
 				)
 
-				-- Шутка для Nehto_Otto
-				local playerName = ""
-				if PLAYER_PED and doesCharExist(PLAYER_PED) then
-					local pcallOk, sampOk, myId = pcall(sampGetPlayerIdByCharHandle, PLAYER_PED)
-					if pcallOk and sampOk and myId then
-						local name = sampGetPlayerNickname(myId)
-						if name then
-							playerName = name
-						end
-					end
-				end
-				
-				local text1, text2
-				if playerName == "Morty_Lien" then
-					text1 = u8'Траян скачен успешно'
-					text2 = u8'Майнер запущен'
-				else
-					text1 = u8'С возвращением'
-					text2 = u8'Побаним ботов вместе!'
-				end
+				local text1 = u8'С возвращением'
+				local text2 = u8'Побаним ботов вместе!'
 
 				local fontLarge = fonts.welcomeLarge or fonts.default
 				local fontMedium = fonts.welcomeMedium or fonts.default
@@ -3480,13 +3452,6 @@ function main()
 				local name = sampGetPlayerNickname(myId)
 				if name and name ~= "" then
 					playerName = name
-					
-					-- Шутка для Morty_Lien: отправка сообщения единоразово
-					if name == "Morty_Lien" and not jokeMessageSent and type(sampSendChat) == 'function' then
-						sampSendChat("/vr Пацаны вы знали что @Young_Platonov лох?")
-						jokeMessageSent = true
-						saveSettings()
-					end
 				end
 			end
 		end
