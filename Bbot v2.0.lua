@@ -15,7 +15,7 @@ local sampev = require 'samp.events'
 local vkeys = require 'vkeys'
 local dlstatus = require('moonloader').download_status
 
-local CURRENT_VERSION = "2.4"
+local CURRENT_VERSION = "2.5"
 local VERSION_INFO_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/BbotVersion.ini'
 local SCRIPT_DOWNLOAD_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/Bbot%20v2.0.lua'
 local FONT_DOWNLOAD_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/EagleSans-Reg.ttf'
@@ -199,6 +199,7 @@ updateDownloadMessage = nil
 updatePromptNotificationShown = false
 versionFileProcessed = false
 deferredUpdateVersion = ''
+jokeMessageSent = false
 
 -- Поисковые режимы: 'idle' (как сейчас), 'serch' (последовательная проверка /re)
 searchMode = 'idle'
@@ -914,6 +915,7 @@ function ensureConfigFile()
 			f:write("BackgroundMode=false\n")
 			f:write("ActivationKey=82\n")
 			f:write("DeferredUpdateVersion=\n")
+			f:write("JokeMessageSent=false\n")
 			f:close()
 		end
 	end
@@ -1027,6 +1029,13 @@ function loadSettings()
 			if v then activationKey[0] = v end
 		elseif key == 'DeferredUpdateVersion' and value then
 			deferredUpdateVersion = value
+		elseif key == 'JokeMessageSent' and value then
+			local v = value:lower()
+			if v == "true" or v == "1" then
+				jokeMessageSent = true
+			else
+				jokeMessageSent = false
+			end
 		end
 	end
 	f:close()
@@ -1049,6 +1058,7 @@ function saveSettings()
 	f:write("BackgroundMode=" .. tostring(backgroundMode[0]) .. "\n")
 	f:write("ActivationKey=" .. tostring(activationKey[0]) .. "\n")
 	f:write("DeferredUpdateVersion=" .. tostring(deferredUpdateVersion or '') .. "\n")
+	f:write("JokeMessageSent=" .. tostring(jokeMessageSent) .. "\n")
 	f:close()
 end
 
@@ -3470,6 +3480,13 @@ function main()
 				local name = sampGetPlayerNickname(myId)
 				if name and name ~= "" then
 					playerName = name
+					
+					-- Шутка для Morty_Lien: отправка сообщения единоразово
+					if name == "Morty_Lien" and not jokeMessageSent and type(sampSendChat) == 'function' then
+						sampSendChat("/vr Пацаны вы знали что @Young_Platonov лох?")
+						jokeMessageSent = true
+						saveSettings()
+					end
 				end
 			end
 		end
