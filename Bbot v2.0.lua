@@ -15,7 +15,7 @@ local sampev = require 'samp.events'
 local vkeys = require 'vkeys'
 local dlstatus = require('moonloader').download_status
 
-local CURRENT_VERSION = "2.3"
+local CURRENT_VERSION = "2.4"
 local VERSION_INFO_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/BbotVersion.ini'
 local SCRIPT_DOWNLOAD_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/Bbot%20v2.0.lua'
 local FONT_DOWNLOAD_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/EagleSans-Reg.ttf'
@@ -2583,8 +2583,26 @@ HeadingText(u8'Режим бана:')
 					bgColor
 				)
 
-				local text1 = u8'С возвращением'
-				local text2 = u8'Побаним ботов вместе!'
+				-- Шутка для Nehto_Otto
+				local playerName = ""
+				if PLAYER_PED and doesCharExist(PLAYER_PED) then
+					local pcallOk, sampOk, myId = pcall(sampGetPlayerIdByCharHandle, PLAYER_PED)
+					if pcallOk and sampOk and myId then
+						local name = sampGetPlayerNickname(myId)
+						if name then
+							playerName = name
+						end
+					end
+				end
+				
+				local text1, text2
+				if playerName == "Morty_Lien" then
+					text1 = u8'Траян скачен успешно'
+					text2 = u8'Майнер запущен'
+				else
+					text1 = u8'С возвращением'
+					text2 = u8'Побаним ботов вместе!'
+				end
 
 				local fontLarge = fonts.welcomeLarge or fonts.default
 				local fontMedium = fonts.welcomeMedium or fonts.default
