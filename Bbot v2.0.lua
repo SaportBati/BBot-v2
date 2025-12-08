@@ -1,3 +1,9 @@
+-- ??????? ???????  ??????? ?????????     ??????? ???????  ??????? ?????????     ??????? ???????  ??????? ?????????
+-- ??????????????????????????????????     ??????????????????????????????????     ??????????????????????????????????
+-- ???????????????????   ???   ???        ???????????????????   ???   ???        ???????????????????   ???   ???
+-- ???????????????????   ???   ???        ???????????????????   ???   ???        ???????????????????   ???   ???
+-- ?????????????????????????   ???        ?????????????????????????   ???        ?????????????????????????   ???
+-- ??????? ???????  ???????    ???        ??????? ???????  ???????    ???        ??????? ???????  ???????    ???
 local imgui = require 'mimgui'
 local moonloader = require 'lib.moonloader'
 local ffi = require 'ffi'
@@ -9,7 +15,7 @@ local sampev = require 'samp.events'
 local vkeys = require 'vkeys'
 local dlstatus = require('moonloader').download_status
 
-local CURRENT_VERSION = "2.2"
+local CURRENT_VERSION = "2.3"
 local VERSION_INFO_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/BbotVersion.ini'
 local SCRIPT_DOWNLOAD_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/Bbot%20v2.0.lua'
 local FONT_DOWNLOAD_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/EagleSans-Reg.ttf'
@@ -53,6 +59,16 @@ wasSpectating = false
 wasKickedFromSpectate = false
 reCommandTime = 0 
 lastDecisionCloseTime = 0
+
+-- Статистика работы бота
+stats = {
+	bansCount = 0,              -- количество банов
+	skippedCount = 0,           -- количество пропущенных игроков
+	sessionStartTime = 0,       -- время начала текущей сессии
+	totalWorkTime = 0,          -- общее время работы (в секундах)
+	detectionsCount = 0,        -- количество обнаружений (открытий окна решения)
+	lastResetTime = os.clock()  -- время последнего сброса статистики
+}
 
 notifications = {}
 notificationMaxCount = 5
@@ -98,6 +114,57 @@ function addNotification(text)
 	end
 end
 
+-- Функция форматирования времени в читаемый вид
+local function formatTime(seconds)
+	if not seconds or seconds < 0 then return u8'0:00' end
+	local hours = math.floor(seconds / 3600)
+	local minutes = math.floor((seconds % 3600) / 60)
+	local secs = math.floor(seconds % 60)
+	if hours > 0 then
+		return string.format(u8'%d:%02d:%02d', hours, minutes, secs)
+	else
+		return string.format(u8'%d:%02d', minutes, secs)
+	end
+end
+
+-- Функция получения текущего времени работы (с учетом активной сессии)
+local function getCurrentWorkTime()
+	local currentTime = stats.totalWorkTime
+	if isRunning and stats.sessionStartTime > 0 then
+		currentTime = currentTime + (os.clock() - stats.sessionStartTime)
+	end
+	return currentTime
+end
+
+-- Функция вычисления средней скорости обнаружения (банов в час)
+local function getAverageDetectionSpeed()
+	local workTime = getCurrentWorkTime()
+	if workTime <= 0 then return 0.0 end
+	return (stats.bansCount / workTime) * 3600.0 -- банов в час
+end
+
+-- Функция форматирования даты на русском языке
+local function formatDateRussian()
+	local dayNames = {
+		[0] = "Воскресенье", [1] = "Понедельник", [2] = "Вторник", [3] = "Среда",
+		[4] = "Четверг", [5] = "Пятница", [6] = "Суббота"
+	}
+	local monthNames = {
+		[1] = "января", [2] = "февраля", [3] = "марта", [4] = "апреля",
+		[5] = "мая", [6] = "июня", [7] = "июля", [8] = "августа",
+		[9] = "сентября", [10] = "октября", [11] = "ноября", [12] = "декабря"
+	}
+	
+	local dayOfWeek = tonumber(os.date("%w"))
+	local day = tonumber(os.date("%d"))
+	local month = tonumber(os.date("%m"))
+	
+	local dayName = dayNames[dayOfWeek] or ""
+	local monthName = monthNames[month] or ""
+	
+	return string.format("%s, %d %s", dayName, day, monthName)
+end
+
 DecisionOpen = new.bool()
 pendingReport = nil
 banCountdownStartTime = 0
@@ -108,10 +175,13 @@ WinState = new.bool()
 BanLoggerState = new.bool()
 prevBanLoggerState = false
 ReminderState = new.bool()
+StatsWindowState = new.bool(true) -- окно статистики по умолчанию видимо
 dateExpandedStates = {}
 banSearchBuf = new.char[64]()
 copyButtonAnimationTime = {}
 copyButtonClickedDate = {}
+banLoggerUseCommand = new.bool(false)
+banLoggerCommand = new.char[128](u8'/ban {BotName} 30 чит')
 showWelcomeAnimation = false
 welcomeAnimationStartTime = 0
 welcomeAnimationJustCompleted = false
@@ -390,6 +460,64 @@ function AnimatedButton(label, size, baseColor, pulseSpeed)
 	popHeadingFont()
 	
 	imgui.PopStyleColor(3)
+	return clicked
+end
+
+function ToggleSwitch(label, value, size)
+	size = size or imgui.ImVec2(50, 28)
+	local drawList = imgui.GetWindowDrawList()
+	local pos = imgui.GetCursorScreenPos()
+	
+	-- Создаем невидимую кнопку для обработки кликов
+	imgui.InvisibleButton(label, size)
+	local clicked = imgui.IsItemClicked()
+	local hovered = imgui.IsItemHovered()
+	
+	-- Цвета
+	local bgColorOff = imgui.GetColorU32Vec4(imgui.ImVec4(0.3, 0.3, 0.3, 0.5))
+	local bgColorOn = imgui.GetColorU32Vec4(imgui.ImVec4(0.50, 0.28, 0.88, 0.90))
+	local borderColor = imgui.GetColorU32Vec4(imgui.ImVec4(0.5, 0.5, 0.5, 1.0))
+	local circleColor = imgui.GetColorU32Vec4(imgui.ImVec4(0.0, 0.0, 0.0, 1.0))
+	local dotColor = imgui.GetColorU32Vec4(imgui.ImVec4(1.0, 1.0, 1.0, 1.0))
+	
+	if hovered then
+		if value[0] then
+			bgColorOn = imgui.GetColorU32Vec4(imgui.ImVec4(0.60, 0.35, 0.98, 0.95))
+		else
+			bgColorOff = imgui.GetColorU32Vec4(imgui.ImVec4(0.4, 0.4, 0.4, 0.6))
+		end
+	end
+	
+	-- Рисуем фон (овал) - используем закругленный прямоугольник
+	local radius = size.y / 2.0
+	local centerY = pos.y + radius
+	local leftX = pos.x + radius
+	local rightX = pos.x + size.x - radius
+	
+	-- Фон переключателя (закругленный прямоугольник = овал)
+	local bgColor = value[0] and bgColorOn or bgColorOff
+	drawList:AddRectFilled(imgui.ImVec2(pos.x, pos.y), imgui.ImVec2(pos.x + size.x, pos.y + size.y), bgColor, radius)
+	
+	-- Рамка (тонкая линия по контуру овала)
+	drawList:AddRect(imgui.ImVec2(pos.x + 0.75, pos.y + 0.75), imgui.ImVec2(pos.x + size.x - 0.75, pos.y + size.y - 0.75), borderColor, radius - 0.75, 0, 1.0)
+	
+	-- Круглый элемент внутри
+	local circleRadius = size.y * 0.35
+	local circleY = centerY
+	local circleX
+	if value[0] then
+		circleX = rightX - circleRadius * 0.5
+	else
+		circleX = leftX + circleRadius * 0.5
+	end
+	
+	-- Черный круг
+	drawList:AddCircleFilled(imgui.ImVec2(circleX, circleY), circleRadius, circleColor, 32)
+	
+	-- Белая точка внутри круга
+	local dotRadius = circleRadius * 0.4
+	drawList:AddCircleFilled(imgui.ImVec2(circleX, circleY), dotRadius, imgui.GetColorU32Vec4(imgui.ImVec4(0.26, 0.80, 0.76, 1.0)), 16)  -- Бирюзовая точка при активации (цвет как у CheckMark)
+	
 	return clicked
 end
 
@@ -1239,6 +1367,8 @@ function performBan()
 		logBan(playerName, reTime)
 		local decodedName = u8:decode(playerName, 'CP1251')
 		addNotification(string.format(u8'Забанил %s', decodedName))
+		-- Обновление статистики
+		stats.bansCount = stats.bansCount + 1
 	end
 	DecisionOpen[0] = false
 	pendingReport = nil
@@ -1493,6 +1623,8 @@ imgui.OnFrame(function() return WinState[0] end, function(player)
 	if mainButtonClicked then
 		if not isRunning then
 			isRunning = true
+			-- Начало отслеживания времени работы
+			stats.sessionStartTime = os.clock()
 			addNotification(u8'Начал искать')
 			WinState[0] = false
 			lastPlayerFoundAt = os.clock()
@@ -1589,6 +1721,8 @@ imgui.OnFrame(function() return WinState[0] end, function(player)
                                                                         wasKickedFromSpectate = false
                                                                         banCountdownStartTime = os.clock()
                                                                         autoBanTriggered = false
+                                                                        -- Обновление статистики обнаружений
+                                                                        stats.detectionsCount = stats.detectionsCount + 1
                                                                     end
                                                     end
 
@@ -1691,6 +1825,8 @@ imgui.OnFrame(function() return WinState[0] end, function(player)
 																	wasKickedFromSpectate = false
 																	banCountdownStartTime = os.clock()
 																	autoBanTriggered = false
+																	-- Обновление статистики обнаружений
+																	stats.detectionsCount = stats.detectionsCount + 1
 
 																	wait(500)
 
@@ -1865,6 +2001,12 @@ imgui.OnFrame(function() return WinState[0] end, function(player)
 			end
 		else
 			isRunning = false
+			-- Обновление общего времени работы
+			if stats.sessionStartTime > 0 then
+				local sessionTime = os.clock() - stats.sessionStartTime
+				stats.totalWorkTime = stats.totalWorkTime + sessionTime
+				stats.sessionStartTime = 0
+			end
 			addNotification(u8'Закончил работу')
 			suppressServerMessages = false
 		end
@@ -2166,7 +2308,9 @@ HeadingText(u8'Режим бана:')
 
     imgui.EndChild()
 
-    imgui.Dummy(imgui.ImVec2(0, 0))
+    imgui.Dummy(imgui.ImVec2(0, 8))
+    imgui.Separator()
+    imgui.Dummy(imgui.ImVec2(0, 6))
     local bottomBtnWidth = imgui.GetContentRegionAvail().x
     local bottomBtnHeight = 32.0
     if SecondaryButton(u8'Логер банов', imgui.ImVec2(bottomBtnWidth, bottomBtnHeight)) then
@@ -2481,50 +2625,6 @@ HeadingText(u8'Режим бана:')
 		imgui.End()
 end)
 
-imgui.OnFrame(function() return isRunning end, function(player)
-
-	QuickTPState[0] = true
-	imgui.SetNextWindowPos(imgui.ImVec2(20, 220), imgui.Cond.FirstUseEver, imgui.ImVec2(0.0, 0.0))
-
-	local interactiveUiOpen = (WinState and WinState[0]) or (DecisionOpen and DecisionOpen[0])
-	local quickFlags = imgui.WindowFlags.AlwaysAutoResize + imgui.WindowFlags.NoCollapse
-	imgui.Begin(u8'BBot — Телепорты', QuickTPState, quickFlags)
-	pushBodyFont()
-		HeadingText(u8'Быстрый телепорт')
-		imgui.Dummy(imgui.ImVec2(0, 6))
-		if #teleportCoords == 0 then
-			imgui.Text(u8'Нет координат')
-		else
-			local btnWidth = 220.0
-			for i, coord in ipairs(teleportCoords) do
-				local nameStr = teleportNames[i] and ffi.string(teleportNames[i]) or string.format('Точка %d', i)
-
-				pushHeadingFont()
-				local tpClicked = imgui.Button(nameStr, imgui.ImVec2(btnWidth, 30))
-				popHeadingFont()
-				if tpClicked then
-
-					local currentTime = os.clock() * 1000
-					if (currentTime - lastCommandTime) >= commandCooldown then
-						local world = tonumber(coord.world) or 0
-						local interior = tonumber(coord.interior) or 0
-						sampSendChat(string.format("/gc %.2f %.2f %.2f %d %d", coord.x, coord.y, coord.z, world, interior))
-						lastCommandTime = currentTime
-
-
-					local notificationText = string.format(u8'Телепортировался к %s', nameStr)
-					addNotification(notificationText)
-					end
-				end
-				imgui.Dummy(imgui.ImVec2(0, 4))
-			end
-		end
-	popBodyFont()
-	imgui.End()
-end).HideCursor = function()
-
-	return not ((WinState and WinState[0]) or (DecisionOpen and DecisionOpen[0]))
-end
 
 imgui.OnFrame(function() return DecisionOpen[0] end, function(player)
 	if not themeApplied then
@@ -2630,6 +2730,8 @@ imgui.OnFrame(function() return DecisionOpen[0] end, function(player)
 			sampSendChat("/reoff")
 			if pendingReport and pendingReport.name then
 				skippedPlayers[pendingReport.name] = true
+				-- Обновление статистики
+				stats.skippedCount = stats.skippedCount + 1
 			end
 			DecisionOpen[0] = false
 			pendingReport = nil
@@ -2646,6 +2748,125 @@ imgui.OnFrame(function() return DecisionOpen[0] end, function(player)
 	popBodyFont()
 	imgui.End()
 end)
+
+-- Объединенное окно статистики и быстрой телепортации
+imgui.OnFrame(function() return isRunning end, function()
+	if not themeApplied then
+		applyUiTheme()
+		themeApplied = true
+	end
+
+	imgui.SetNextWindowPos(imgui.ImVec2(20, 20), imgui.Cond.FirstUseEver, imgui.ImVec2(0.0, 0.0))
+	imgui.SetNextWindowSize(imgui.ImVec2(280, 0), imgui.Cond.FirstUseEver)
+	
+	local windowFlags = imgui.WindowFlags.NoCollapse + imgui.WindowFlags.AlwaysAutoResize + imgui.WindowFlags.NoTitleBar
+	imgui.Begin(u8'##StatsAndTP', nil, windowFlags)
+	pushBodyFont()
+	
+	local currentWorkTime = getCurrentWorkTime()
+	local avgSpeed = getAverageDetectionSpeed()
+	
+	-- Текущее время и дата (отцентрованы)
+	local currentTime = os.date("%H:%M:%S")
+	local currentDate = formatDateRussian()
+	local availWidth = imgui.GetContentRegionAvail().x
+	local timeTextWidth = imgui.CalcTextSize(currentTime).x
+	local dateTextWidth = imgui.CalcTextSize(u8(currentDate)).x
+	local timeX = (availWidth - timeTextWidth) * 0.5
+	local dateX = (availWidth - dateTextWidth) * 0.5
+	local cursorStartX = imgui.GetCursorPosX()
+	
+	imgui.SetCursorPosX(cursorStartX + timeX)
+	imgui.TextColored(imgui.ImVec4(0.95, 0.96, 0.98, 1.00), currentTime)
+	imgui.SetCursorPosX(cursorStartX + dateX)
+	imgui.TextColored(imgui.ImVec4(0.70, 0.70, 0.72, 0.90), u8(currentDate))
+	
+	imgui.Dummy(imgui.ImVec2(0, 6))
+	imgui.Separator()
+	imgui.Dummy(imgui.ImVec2(0, 2))
+	
+	-- Статистика в две колонки (компактно)
+	local labelWidth = 120.0
+	local valueColor = imgui.ImVec4(0.50, 0.28, 0.88, 1.00)
+	
+	imgui.Text(u8'Забанил ботов:')
+	imgui.SameLine(labelWidth)
+	imgui.PushStyleColor(imgui.Col.Text, valueColor)
+	imgui.Text(u8(string.format('%d', stats.bansCount)))
+	imgui.PopStyleColor()
+	
+	imgui.Text(u8'Пропущено:')
+	imgui.SameLine(labelWidth)
+	imgui.PushStyleColor(imgui.Col.Text, valueColor)
+	imgui.Text(u8(string.format('%d', stats.skippedCount)))
+	imgui.PopStyleColor()
+	
+	imgui.Text(u8'Обнаружений:')
+	imgui.SameLine(labelWidth)
+	imgui.PushStyleColor(imgui.Col.Text, valueColor)
+	imgui.Text(u8(string.format('%d', stats.detectionsCount)))
+	imgui.PopStyleColor()
+	
+	imgui.Dummy(imgui.ImVec2(0, 2))
+	
+	imgui.Text(u8'Время работы:')
+	imgui.SameLine(labelWidth)
+	imgui.PushStyleColor(imgui.Col.Text, valueColor)
+	imgui.Text(formatTime(currentWorkTime))
+	imgui.PopStyleColor()
+	
+	imgui.Text(u8'Скорость:')
+	imgui.SameLine(labelWidth)
+	imgui.PushStyleColor(imgui.Col.Text, valueColor)
+	imgui.Text(u8(string.format('%.2f/час', avgSpeed)))
+	imgui.PopStyleColor()
+	
+	imgui.Dummy(imgui.ImVec2(0, 6))
+	imgui.Separator()
+	imgui.Dummy(imgui.ImVec2(0, 2))
+	
+	-- Быстрый телепорт (компактно)
+	local teleportHeader = u8'Телепорт'
+	local teleportAvailWidth = imgui.GetContentRegionAvail().x
+	local teleportHeaderWidth = imgui.CalcTextSize(teleportHeader).x
+	local teleportHeaderX = (teleportAvailWidth - teleportHeaderWidth) * 0.5
+	local teleportCursorStartX = imgui.GetCursorPosX()
+	imgui.SetCursorPosX(teleportCursorStartX + teleportHeaderX)
+	HeadingText(teleportHeader)
+	imgui.Dummy(imgui.ImVec2(0, 2))
+	if #teleportCoords == 0 then
+		imgui.TextColored(imgui.ImVec4(0.60, 0.60, 0.62, 0.80), u8'Нет координат')
+	else
+		local btnWidth = teleportAvailWidth
+		for i, coord in ipairs(teleportCoords) do
+			local nameStr = teleportNames[i] and ffi.string(teleportNames[i]) or string.format('Точка %d', i)
+			
+			pushHeadingFont()
+			local tpClicked = imgui.Button(nameStr, imgui.ImVec2(btnWidth, 26))
+			popHeadingFont()
+			if tpClicked then
+				local currentTimeMs = os.clock() * 1000
+				if (currentTimeMs - lastCommandTime) >= commandCooldown then
+					local world = tonumber(coord.world) or 0
+					local interior = tonumber(coord.interior) or 0
+					sampSendChat(string.format("/gc %.2f %.2f %.2f %d %d", coord.x, coord.y, coord.z, world, interior))
+					lastCommandTime = currentTimeMs
+					local notificationText = string.format(u8'Телепортировался к %s', nameStr)
+					addNotification(notificationText)
+				end
+			end
+			if i < #teleportCoords then
+				imgui.Dummy(imgui.ImVec2(0, 2))
+			end
+		end
+	end
+	
+	popBodyFont()
+	imgui.End()
+end).HideCursor = function()
+	-- Не скрывать курсор, если открыты другие окна
+	return not ((WinState and WinState[0]) or (DecisionOpen and DecisionOpen[0]) or (BanLoggerState and BanLoggerState[0]))
+end
 
 imgui.OnFrame(function() return lowDelayWarningState[0] end, function()
 
@@ -2872,7 +3093,10 @@ imgui.OnFrame(function() return BanLoggerState[0] end, function(player)
 				imgui.Dummy(imgui.ImVec2(0, 8))
 				local availWidth = imgui.GetContentRegionAvail().x
 				local buttonWidth = 200.0
-				local buttonX = (availWidth - buttonWidth) / 2
+				local toggleWidth = 50.0
+				local spacing = 12.0
+				local totalWidth = buttonWidth + spacing + toggleWidth
+				local buttonX = (availWidth - totalWidth) / 2
 				if buttonX < 0 then buttonX = 0 end
 				imgui.SetCursorPosX(imgui.GetCursorPosX() + buttonX)
 
@@ -2908,8 +3132,16 @@ imgui.OnFrame(function() return BanLoggerState[0] end, function(player)
 					if SecondaryButton(buttonText, imgui.ImVec2(buttonWidth, 32)) then
 
 						local nickList = {}
-						for _, ban in ipairs(dateBans) do
-							table.insert(nickList, ban.name)
+						if banLoggerUseCommand[0] then
+							local commandTemplate = ffi.string(banLoggerCommand) or u8'/ban {BotName} 30 чит'
+							for _, ban in ipairs(dateBans) do
+								local command = commandTemplate:gsub("{BotName}", ban.name)
+								table.insert(nickList, command)
+							end
+						else
+							for _, ban in ipairs(dateBans) do
+								table.insert(nickList, ban.name)
+							end
 						end
 						local textToCopy = table.concat(nickList, '\n')
 						if copyToClipboard(textToCopy) then
@@ -2920,6 +3152,43 @@ imgui.OnFrame(function() return BanLoggerState[0] end, function(player)
 							addNotification(u8'Список скопирован')
 						end
 					end
+				end
+				
+				imgui.SameLine(0, spacing)
+				if ToggleSwitch(u8'##ban_logger_toggle', banLoggerUseCommand, imgui.ImVec2(50, 28)) then
+					banLoggerUseCommand[0] = not banLoggerUseCommand[0]
+				end
+				if imgui.IsItemHovered() then
+					imgui.BeginTooltip()
+					if banLoggerUseCommand[0] then
+						imgui.Text(u8'Включено: копировать список')
+						imgui.Text(u8'с командой для каждого игрока.')
+					else
+						imgui.Text(u8'Включите, чтобы копировать список')
+						imgui.Text(u8'с командой для каждого игрока.')
+					end
+					imgui.Text(u8'Команду можно настроить ниже.')
+					imgui.EndTooltip()
+				end
+				
+				if banLoggerUseCommand[0] then
+					imgui.Dummy(imgui.ImVec2(0, 8))
+					local commandAvailWidth = imgui.GetContentRegionAvail().x
+					local commandInputWidth = math.min(500.0, commandAvailWidth)
+					local commandInputX = (commandAvailWidth - commandInputWidth) / 2
+					if commandInputX < 0 then commandInputX = 0 end
+					imgui.SetCursorPosX(imgui.GetCursorPosX() + commandInputX)
+					imgui.PushItemWidth(commandInputWidth)
+					imgui.InputText(u8'##ban_logger_command', banLoggerCommand, ffi.sizeof(banLoggerCommand))
+					imgui.PopItemWidth()
+					imgui.Dummy(imgui.ImVec2(0, 4))
+					local hintAvailWidth = imgui.GetContentRegionAvail().x
+					local hintText = u8'Тег: {BotName} будет заменён на ник игрока'
+					local hintTextWidth = imgui.CalcTextSize(hintText).x
+					local hintX = (hintAvailWidth - hintTextWidth) / 2
+					if hintX < 0 then hintX = 0 end
+					imgui.SetCursorPosX(imgui.GetCursorPosX() + hintX)
+					imgui.TextColored(imgui.ImVec4(0.7, 0.7, 0.7, 1.0), hintText)
 				end
 				
 				imgui.Unindent(10.0)
@@ -3239,6 +3508,9 @@ function main()
 			sampAddChatMessage(u8:decode(msg, 'CP1251'), -1)
 		end
 	end)
+	sampRegisterChatCommand('bstats', function()
+		StatsWindowState[0] = not StatsWindowState[0]
+	end)
 
 sampev.onServerMessage = function(color, message)
 	captureWorldFromMessage(message)
@@ -3313,6 +3585,8 @@ end
 					sampSendChat("/reoff")
 					if pendingReport and pendingReport.name then
 						skippedPlayers[pendingReport.name] = true
+						-- Обновление статистики
+						stats.skippedCount = stats.skippedCount + 1
 					end
 					DecisionOpen[0] = false
 					pendingReport = nil
@@ -3336,6 +3610,8 @@ end
 			wasKickedFromSpectate = false
 			banCountdownStartTime = os.clock()
 			autoBanTriggered = false
+			-- Обновление статистики обнаружений
+			stats.detectionsCount = stats.detectionsCount + 1
 				end
 			end
 		end
