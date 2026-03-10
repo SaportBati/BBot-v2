@@ -15,7 +15,7 @@ local sampev = require 'samp.events'
 local vkeys = require 'vkeys'
 local dlstatus = require('moonloader').download_status
 
-local CURRENT_VERSION = "2.6"
+local CURRENT_VERSION = "2.7"
 local VERSION_INFO_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/BbotVersion.ini'
 local SCRIPT_DOWNLOAD_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/Bbot%20v2.0.lua'
 local FONT_DOWNLOAD_URL = 'https://github.com/SaportBati/BBot-v2/raw/refs/heads/main/EagleSans-Reg.ttf'
@@ -42,10 +42,10 @@ playerLastTriggeredAt = {}
 isProcessing = false
 triggeredInRadius = {}
 triggeredInRadiusTime = {}
-playerInCarPositions = {} -- позиции игроков в машине каждые 10мс
-playerInCarLastCheckTime = {} -- время последнего замера позиции для игроков в машине
-playerInCarTriggered = {} -- флаг триггера для игроков в машине
-teleportDetectionDistance = 50.0 -- расстояние для определения телепорта (в метрах) 
+playerInCarPositions = {}
+playerInCarLastCheckTime = {}
+playerInCarTriggered = {}
+teleportDetectionDistance = 50.0
 teleportCoords = {}
 teleportNames = {}
 teleportIndex = 1
@@ -57,17 +57,16 @@ lastCommandTime = 0
 commandCooldown = 1000
 wasSpectating = false
 wasKickedFromSpectate = false
-reCommandTime = 0 
+reCommandTime = 0
 lastDecisionCloseTime = 0
 
--- Статистика работы бота
 stats = {
-	bansCount = 0,              -- количество банов
-	skippedCount = 0,           -- количество пропущенных игроков
-	sessionStartTime = 0,       -- время начала текущей сессии
-	totalWorkTime = 0,          -- общее время работы (в секундах)
-	detectionsCount = 0,        -- количество обнаружений (открытий окна решения)
-	lastResetTime = os.clock()  -- время последнего сброса статистики
+	bansCount = 0,
+	skippedCount = 0,
+	sessionStartTime = 0,
+	totalWorkTime = 0,
+	detectionsCount = 0,
+	lastResetTime = os.clock()
 }
 
 notifications = {}
@@ -114,7 +113,6 @@ function addNotification(text)
 	end
 end
 
--- Функция форматирования времени в читаемый вид
 local function formatTime(seconds)
 	if not seconds or seconds < 0 then return u8'0:00' end
 	local hours = math.floor(seconds / 3600)
@@ -127,7 +125,6 @@ local function formatTime(seconds)
 	end
 end
 
--- Функция получения текущего времени работы (с учетом активной сессии)
 local function getCurrentWorkTime()
 	local currentTime = stats.totalWorkTime
 	if isRunning and stats.sessionStartTime > 0 then
@@ -136,14 +133,12 @@ local function getCurrentWorkTime()
 	return currentTime
 end
 
--- Функция вычисления средней скорости обнаружения (банов в час)
 local function getAverageDetectionSpeed()
 	local workTime = getCurrentWorkTime()
 	if workTime <= 0 then return 0.0 end
-	return (stats.bansCount / workTime) * 3600.0 -- банов в час
+	return (stats.bansCount / workTime) * 3600.0
 end
 
--- Функция форматирования даты на русском языке
 local function formatDateRussian()
 	local dayNames = {
 		[0] = "Воскресенье", [1] = "Понедельник", [2] = "Вторник", [3] = "Среда",
@@ -175,7 +170,7 @@ WinState = new.bool()
 BanLoggerState = new.bool()
 prevBanLoggerState = false
 ReminderState = new.bool()
-StatsWindowState = new.bool(true) -- окно статистики по умолчанию видимо
+StatsWindowState = new.bool(true)
 dateExpandedStates = {}
 banSearchBuf = new.char[64]()
 copyButtonAnimationTime = {}
@@ -200,7 +195,6 @@ updatePromptNotificationShown = false
 versionFileProcessed = false
 deferredUpdateVersion = ''
 
--- Поисковые режимы: 'idle' (как сейчас), 'serch' (последовательная проверка /re)
 searchMode = 'idle'
 currentSearchTargetId = nil
 searchControllerThread = nil
@@ -231,9 +225,8 @@ worldDetection = {
 worldDetectionMaxAge = 30.0
 worldDetectionRequestCooldown = 2.5
 
--- Фоновый режим (работает как Idle, но без /re и окна)
 backgroundMode = new.bool(false)
-activationKey = new.int(0x52) -- R по умолчанию
+activationKey = new.int(0x52)
 waitingForActivationKey = false
 backgroundPending = nil
 
@@ -243,6 +236,13 @@ prevBanKey = false
 prevSkipKey = false
 waitingForBanKey = false
 waitingForSkipKey = false
+
+-- ===== НОВЫЕ БИНДЫ =====
+menuKey = new.int(0x4D)    -- M по умолчанию (открыть/закрыть меню настроек)
+startKey = new.int(0x4B)   -- K по умолчанию (старт/стоп работы)
+waitingForMenuKey = false
+waitingForStartKey = false
+-- ========================
 
 hoverAlpha = new.float(0.85)
 animationTime = 0.0
@@ -387,12 +387,9 @@ function applyUiTheme()
 	colors[imgui.Col.Separator] = imgui.ImVec4(0.20, 0.20, 0.25, 0.60)
 	colors[imgui.Col.SeparatorHovered] = imgui.ImVec4(0.45, 0.25, 0.80, 0.75)
 	colors[imgui.Col.SeparatorActive] = imgui.ImVec4(0.55, 0.30, 0.95, 1.00)
-
-
 end
 
 function DangerButton(label, size)
-
 	local baseColor = imgui.ImVec4(0.85, 0.20, 0.22, 0.90)
 	local hoverColor = imgui.ImVec4(0.95, 0.28, 0.30, 0.95)
 	local activeColor = imgui.ImVec4(1.00, 0.35, 0.38, 1.00)
@@ -410,7 +407,6 @@ function DangerButton(label, size)
 end
 
 function SecondaryButton(label, size)
-
 	local baseColor = imgui.ImVec4(0.22, 0.22, 0.26, 0.80)
 	local hoverColor = imgui.ImVec4(0.35, 0.30, 0.45, 0.90)
 	local activeColor = imgui.ImVec4(0.42, 0.35, 0.52, 1.00)
@@ -468,12 +464,10 @@ function ToggleSwitch(label, value, size)
 	local drawList = imgui.GetWindowDrawList()
 	local pos = imgui.GetCursorScreenPos()
 	
-	-- Создаем невидимую кнопку для обработки кликов
 	imgui.InvisibleButton(label, size)
 	local clicked = imgui.IsItemClicked()
 	local hovered = imgui.IsItemHovered()
 	
-	-- Цвета
 	local bgColorOff = imgui.GetColorU32Vec4(imgui.ImVec4(0.3, 0.3, 0.3, 0.5))
 	local bgColorOn = imgui.GetColorU32Vec4(imgui.ImVec4(0.50, 0.28, 0.88, 0.90))
 	local borderColor = imgui.GetColorU32Vec4(imgui.ImVec4(0.5, 0.5, 0.5, 1.0))
@@ -488,20 +482,15 @@ function ToggleSwitch(label, value, size)
 		end
 	end
 	
-	-- Рисуем фон (овал) - используем закругленный прямоугольник
 	local radius = size.y / 2.0
 	local centerY = pos.y + radius
 	local leftX = pos.x + radius
 	local rightX = pos.x + size.x - radius
 	
-	-- Фон переключателя (закругленный прямоугольник = овал)
 	local bgColor = value[0] and bgColorOn or bgColorOff
 	drawList:AddRectFilled(imgui.ImVec2(pos.x, pos.y), imgui.ImVec2(pos.x + size.x, pos.y + size.y), bgColor, radius)
-	
-	-- Рамка (тонкая линия по контуру овала)
 	drawList:AddRect(imgui.ImVec2(pos.x + 0.75, pos.y + 0.75), imgui.ImVec2(pos.x + size.x - 0.75, pos.y + size.y - 0.75), borderColor, radius - 0.75, 0, 1.0)
 	
-	-- Круглый элемент внутри
 	local circleRadius = size.y * 0.35
 	local circleY = centerY
 	local circleX
@@ -511,12 +500,9 @@ function ToggleSwitch(label, value, size)
 		circleX = leftX + circleRadius * 0.5
 	end
 	
-	-- Черный круг
 	drawList:AddCircleFilled(imgui.ImVec2(circleX, circleY), circleRadius, circleColor, 32)
-	
-	-- Белая точка внутри круга
 	local dotRadius = circleRadius * 0.4
-	drawList:AddCircleFilled(imgui.ImVec2(circleX, circleY), dotRadius, imgui.GetColorU32Vec4(imgui.ImVec4(0.26, 0.80, 0.76, 1.0)), 16)  -- Бирюзовая точка при активации (цвет как у CheckMark)
+	drawList:AddCircleFilled(imgui.ImVec2(circleX, circleY), dotRadius, imgui.GetColorU32Vec4(imgui.ImVec4(0.26, 0.80, 0.76, 1.0)), 16)
 	
 	return clicked
 end
@@ -524,7 +510,6 @@ end
 themeApplied = false
 
 copyToClipboard = (function()
-
 	local user32, kernel32
 	local loaded = false
 	
@@ -581,9 +566,7 @@ copyToClipboard = (function()
 		kernel32.GlobalUnlock(hMem)
 
 		if user32.OpenClipboard(nil) then
-
 			user32.EmptyClipboard()
-
 			user32.SetClipboardData(CF_UNICODETEXT, hMem)
 			user32.CloseClipboard()
 			return true
@@ -612,7 +595,6 @@ openUrl = (function()
 		end
 
 		local result = shell32.ShellExecuteA(nil, "open", url, nil, nil, 1)
-
 		return result > 32
 	end
 end)()
@@ -624,18 +606,15 @@ end
 local function downloadFontIfNeeded()
 	local fontPath = getConfigDir() .. '\\EagleSans-Reg.ttf'
 	
-	-- Проверяем, существует ли файл шрифта
 	if doesFileExist(fontPath) then
-		return -- Шрифт уже существует, загрузка не нужна
+		return
 	end
 	
-	-- Создаем директорию, если её нет
 	local configDir = getConfigDir()
 	if not doesDirectoryExist(configDir) then
 		createDirectory(configDir)
 	end
 	
-	-- Загружаем шрифт
 	sendUpdateMessage('Загрузка шрифта EagleSans-Reg.ttf...')
 	downloadUrlToFile(FONT_DOWNLOAD_URL, fontPath, function(id, status)
 		if status == dlstatus.STATUS_ENDDOWNLOADDATA then
@@ -680,18 +659,10 @@ imgui.OnInitialize(function()
 		end
 	end
 
-	if not fonts.notification then
-		fonts.notification = io.FontDefault
-	end
-	if not fonts.default then
-		fonts.default = io.FontDefault
-	end
-	if not fonts.body then
-		fonts.body = fonts.default
-	end
-	if not fonts.heading then
-		fonts.heading = fonts.default
-	end
+	if not fonts.notification then fonts.notification = io.FontDefault end
+	if not fonts.default then fonts.default = io.FontDefault end
+	if not fonts.body then fonts.body = fonts.default end
+	if not fonts.heading then fonts.heading = fonts.default end
 end)
 
 function getSettingsPath()
@@ -899,10 +870,9 @@ function ensureConfigFile()
 	if not doesDirectoryExist(dir) then
 		createDirectory(dir)
 	end
-		if not doesFileExist(path) then
+	if not doesFileExist(path) then
 		local f = io.open(path, "w")
 		if f then
-
 			local raw = ffi.string(banMessage) or ""
 			f:write("BanMessage=" .. raw .. "\n")
 			f:write("BanKey=66\n")
@@ -913,6 +883,8 @@ function ensureConfigFile()
 			f:write("SearchMode=idle\n")
 			f:write("BackgroundMode=false\n")
 			f:write("ActivationKey=82\n")
+			f:write("MenuKey=77\n")
+			f:write("StartKey=75\n")
 			f:write("DeferredUpdateVersion=\n")
 			f:close()
 		end
@@ -985,7 +957,6 @@ function loadSettings()
 			local v = tonumber(value)
 			if v then
 				banCountdownMs[0] = v
-
 				if v < 3000 then
 					lowDelayConfirmed = false
 				else
@@ -993,7 +964,6 @@ function loadSettings()
 				end
 			end
 		elseif key == 'ShowWelcomeAnimation' and value then
-
 			local v = value:lower()
 			if v == "true" or v == "1" then
 				showWelcomeAnimation = true
@@ -1001,7 +971,6 @@ function loadSettings()
 				showWelcomeAnimation = false
 			end
 		elseif key == 'IsAutoBan' and value then
-
 			local v = value:lower()
 			if v == "true" or v == "1" then
 				isAutoBan[0] = true
@@ -1025,6 +994,12 @@ function loadSettings()
 		elseif key == 'ActivationKey' and value then
 			local v = tonumber(value)
 			if v then activationKey[0] = v end
+		elseif key == 'MenuKey' and value then
+			local v = tonumber(value)
+			if v then menuKey[0] = v end
+		elseif key == 'StartKey' and value then
+			local v = tonumber(value)
+			if v then startKey[0] = v end
 		elseif key == 'DeferredUpdateVersion' and value then
 			deferredUpdateVersion = value
 		end
@@ -1048,6 +1023,8 @@ function saveSettings()
 	f:write("SearchMode=" .. tostring(searchMode) .. "\n")
 	f:write("BackgroundMode=" .. tostring(backgroundMode[0]) .. "\n")
 	f:write("ActivationKey=" .. tostring(activationKey[0]) .. "\n")
+	f:write("MenuKey=" .. tostring(menuKey[0]) .. "\n")
+	f:write("StartKey=" .. tostring(startKey[0]) .. "\n")
 	f:write("DeferredUpdateVersion=" .. tostring(deferredUpdateVersion or '') .. "\n")
 	f:close()
 end
@@ -1066,7 +1043,6 @@ function ensureCoordsFile()
 	if not doesFileExist(path) then
 		local f = io.open(path, "w")
 		if f then
-
 			f:write("\239\187\191")
 			f:write(u8:encode('Ферма|-103.05|106.17|8.12|0|0') .. '\n')
 			f:write(u8:encode('Респа 1|1750.88|-1892.53|29.24|0|0') .. '\n')
@@ -1108,7 +1084,6 @@ function loadCoords()
 		end
 	end
 	f:close()
-
 end
 
 function saveCoords()
@@ -1178,7 +1153,6 @@ function ensureBansFile()
 	if not doesFileExist(path) then
 		local f = io.open(path, "w")
 		if f then
-
 			f:write("\239\187\191")
 			f:close()
 		end
@@ -1191,7 +1165,6 @@ function logBan(playerName, reTime)
 	local path = ensureBansFile()
 	local f = io.open(path, "a")
 	if f then
-
 		local timestamp = os.date("%Y-%m-%d %H:%M:%S")
 
 		local timeDiff = ""
@@ -1199,7 +1172,6 @@ function logBan(playerName, reTime)
 			local currentTime = os.clock()
 			local diffSeconds = currentTime - reTime
 			if diffSeconds >= 0 then
-
 				if diffSeconds < 60 then
 					timeDiff = string.format("%.2fс", diffSeconds)
 				else
@@ -1225,11 +1197,8 @@ function loadBans()
 	local f = io.open(path, "r")
 	if not f then return bans end
 	for line in f:lines() do
-
 		line = line:gsub("^\239\187\191", "")
-
 		local decodedLine = u8:decode(line, 'CP1251')
-
 		local name, timestamp, timeDiff = decodedLine:match("^([^|]+)|([^|]+)|([^|]*)%s*$")
 		if name and timestamp then
 			table.insert(bans, {
@@ -1249,7 +1218,6 @@ function loadBans()
 end
 
 function formatDateToRussian(dateStr)
-
 	local year, month, day = dateStr:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)$")
 	if not year or not month or not day then
 		return dateStr
@@ -1290,13 +1258,10 @@ function getBanWord(count)
 
 	if lastTwoDigits >= 11 and lastTwoDigits <= 14 then
 		return "банов"
-
 	elseif lastDigit == 1 then
 		return "бан"
-
 	elseif lastDigit >= 2 and lastDigit <= 4 then
 		return "бана"
-
 	else
 		return "банов"
 	end
@@ -1308,13 +1273,10 @@ function getBotWord(count)
 
 	if lastTwoDigits >= 11 and lastTwoDigits <= 14 then
 		return "ботов"
-
 	elseif lastDigit == 1 then
 		return "бот"
-
 	elseif lastDigit >= 2 and lastDigit <= 4 then
 		return "бота"
-
 	else
 		return "ботов"
 	end
@@ -1323,7 +1285,6 @@ end
 function groupBansByDate(bans)
 	local grouped = {}
 	for _, ban in ipairs(bans) do
-
 		local date = ban.timestamp:match("^(%d%d%d%d%-%d%d%-%d%d)")
 		if date then
 			if not grouped[date] then
@@ -1367,7 +1328,6 @@ function performBan()
 		logBan(playerName, reTime)
 		local decodedName = u8:decode(playerName, 'CP1251')
 		addNotification(string.format(u8'Забанил %s', decodedName))
-		-- Обновление статистики
 		stats.bansCount = stats.bansCount + 1
 	end
 	DecisionOpen[0] = false
@@ -1375,6 +1335,367 @@ function performBan()
 	isProcessing = false
 	lastDecisionCloseTime = os.clock() * 1000
     banOccurredFlag = true
+end
+
+-- ===== ФУНКЦИЯ ЗАПУСКА СКАНЕРА (вынесена для использования из бинда) =====
+function startScanner()
+	if isRunning then return end
+	isRunning = true
+	stats.sessionStartTime = os.clock()
+	addNotification(u8'Начал искать')
+	WinState[0] = false
+	lastPlayerFoundAt = os.clock()
+	scannerThread = lua_thread.create(function()
+		while isRunning do
+			local nowTime = os.clock()
+			local myX, myY, myZ = getCharCoordinates(PLAYER_PED)
+			local pcallOk, sampOk, myId = pcall(sampGetPlayerIdByCharHandle, PLAYER_PED)
+			startId, endId, step = 0, 1000, 1
+			if searchMode == 'serch' then
+				if currentSearchTargetId ~= nil then
+					startId, endId = currentSearchTargetId, currentSearchTargetId
+				else
+					startId, endId = 1, 0
+				end
+			end
+			if not pcallOk or not sampOk or not myId then
+				wait(100)
+				goto continue_loop
+			end
+
+			for i = startId, endId, step do
+				if sampIsPlayerConnected(i) and i ~= myId then
+					local ok, ped = sampGetCharHandleBySampPlayerId(i)
+					if ok then
+						local px, py, pz = getCharCoordinates(ped)
+
+						local last = playerLastPos[i]
+						local speedKmh = nil
+						if last ~= nil then
+							local dt = nowTime - last.t
+							if dt > 0 then
+								local dx, dy, dz = px - last.x, py - last.y, pz - last.z
+								local dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+								local mps = dist / dt
+								speedKmh = mps * 3.6
+							end
+						end
+						playerLastPos[i] = { x = px, y = py, z = pz, t = nowTime }
+
+						if speedKmh ~= nil and speedKmh > 500.0 and not isCharInAnyCar(ped) then
+							local dxm, dym, dzm = myX - px, myY - py, myZ - pz
+							local distanceToMe = math.sqrt(dxm*dxm + dym*dym + dzm*dzm)
+							if distanceToMe <= 300.0 then
+								local level = sampGetPlayerScore(i)
+								if level >= 1 and level <= 5 then
+									lastPlayerFoundAt = nowTime
+
+									local lastTriggerTime = triggeredInRadiusTime[i] or 0
+									if (nowTime - lastTriggerTime) >= 10.0 then
+										triggeredInRadius[i] = nil
+										triggeredInRadiusTime[i] = nil
+									end
+									
+									if not triggeredInRadius[i] then
+										local lastTrig = playerLastTriggeredAt[i] or 0
+										if (nowTime - lastTrig) >= 1.0 and not isProcessing then
+											triggeredInRadius[i] = true
+											triggeredInRadiusTime[i] = nowTime
+											playerLastTriggeredAt[i] = nowTime
+											isProcessing = true
+											local name = sampGetPlayerNickname(i)
+											local decodedName = u8:decode(name, 'CP1251')
+											addNotification(string.format(u8'Нашел %s', decodedName))
+
+                                            if backgroundMode[0] and not isRunning then
+                                                backgroundPending = { id = i, name = name, level = level, distance = distanceToMe }
+                                                local keyName = vkeys.id_to_name(activationKey[0]) or string.format("0x%02X", activationKey[0])
+                                                local decodedName = u8:decode(name, 'CP1251')
+                                                addNotification(string.format(u8'%s возможно бот — нажмите %s', decodedName, keyName))
+                                                isProcessing = false
+                                            else
+                                                if backgroundMode[0] and not isRunning then
+                                                    backgroundPending = { id = i, name = name, level = level, distance = distanceToMe }
+                                                    local keyName = vkeys.id_to_name(activationKey[0]) or string.format("0x%02X", activationKey[0])
+                                                    local decodedName = u8:decode(name, 'CP1251')
+                                                    addNotification(string.format(u8'%s возможно бот — нажмите %s', decodedName, keyName))
+                                                    isProcessing = false
+                                                else
+                                                    local currentTime = os.clock() * 1000
+                                                    local reTime = nil
+                                                    if (currentTime - lastCommandTime) >= commandCooldown and (currentTime - lastDecisionCloseTime) >= 500 then
+                                                        sampSendChat(string.format("/re %s", name))
+                                                        lastCommandTime = currentTime
+                                                        reTime = os.clock()
+                                                        reCommandTime = os.clock()
+                                                    end
+
+                                                    pendingReport = { id = i, name = name, level = level, distance = distanceToMe, ip = "неизвестно", reTime = reTime }
+                                                    DecisionOpen[0] = true
+                                                    wasKickedFromSpectate = false
+                                                    banCountdownStartTime = os.clock()
+                                                    autoBanTriggered = false
+                                                    stats.detectionsCount = stats.detectionsCount + 1
+                                                end
+                                            end
+
+											wait(500)
+
+											if not wasSpectating then
+												wasSpectating = true
+											end
+											while DecisionOpen[0] do
+												if wasKickedFromSpectate then
+													if DecisionOpen[0] then
+														sampSendChat("/reoff")
+														DecisionOpen[0] = false
+														isProcessing = false
+														pendingReport = nil
+														wasKickedFromSpectate = false
+														wasSpectating = false
+														lastDecisionCloseTime = os.clock() * 1000
+													end
+													break
+												end
+												wait(10)
+											end
+											isProcessing = false
+										end
+									end
+								end
+							else
+								triggeredInRadius[i] = nil
+								triggeredInRadiusTime[i] = nil
+							end
+						elseif isCharInAnyCar(ped) then
+							local lastCheckTime = playerInCarLastCheckTime[i] or 0
+							local timeSinceLastCheck = (nowTime - lastCheckTime) * 1000.0
+							
+							if timeSinceLastCheck >= 10.0 then
+								if not playerInCarPositions[i] then
+									playerInCarPositions[i] = {}
+								end
+								
+								table.insert(playerInCarPositions[i], { x = px, y = py, z = pz, t = nowTime })
+								
+								if #playerInCarPositions[i] > 2 then
+									table.remove(playerInCarPositions[i], 1)
+								end
+								
+								if #playerInCarPositions[i] >= 2 then
+									local prevPos = playerInCarPositions[i][#playerInCarPositions[i] - 1]
+									local currPos = playerInCarPositions[i][#playerInCarPositions[i]]
+									local dt = currPos.t - prevPos.t
+									
+									if dt > 0 then
+										local dx = currPos.x - prevPos.x
+										local dy = currPos.y - prevPos.y
+										local dz = currPos.z - prevPos.z
+										local distance = math.sqrt(dx*dx + dy*dy + dz*dz)
+										
+										if distance > teleportDetectionDistance then
+											local dxm, dym, dzm = myX - px, myY - py, myZ - pz
+											local distanceToMe = math.sqrt(dxm*dxm + dym*dym + dzm*dzm)
+											if distanceToMe <= 300.0 then
+												local level = sampGetPlayerScore(i)
+												if level >= 1 and level <= 5 then
+													local lastTriggerTime = triggeredInRadiusTime[i] or 0
+													if (nowTime - lastTriggerTime) >= 10.0 then
+														playerInCarTriggered[i] = nil
+													end
+													
+													if not playerInCarTriggered[i] then
+														local lastTrig = playerLastTriggeredAt[i] or 0
+														if (nowTime - lastTrig) >= 1.0 and not isProcessing then
+															playerInCarTriggered[i] = true
+															triggeredInRadiusTime[i] = nowTime
+															playerLastTriggeredAt[i] = nowTime
+															isProcessing = true
+															local name = sampGetPlayerNickname(i)
+															local decodedName = u8:decode(name, 'CP1251')
+															addNotification(string.format(u8'Нашел %s (в машине)', decodedName))
+
+															local currentTime = os.clock() * 1000
+															local reTime = nil
+															if (currentTime - lastCommandTime) >= commandCooldown and (currentTime - lastDecisionCloseTime) >= 500 then
+																sampSendChat(string.format("/re %s", name))
+																lastCommandTime = currentTime
+																reTime = os.clock()
+																reCommandTime = os.clock()
+															end
+
+															pendingReport = { id = i, name = name, level = level, distance = distanceToMe, ip = "неизвестно", reTime = reTime }
+															DecisionOpen[0] = true
+															wasKickedFromSpectate = false
+															banCountdownStartTime = os.clock()
+															autoBanTriggered = false
+															stats.detectionsCount = stats.detectionsCount + 1
+
+															wait(500)
+
+															if not wasSpectating then
+																wasSpectating = true
+															end
+															while DecisionOpen[0] do
+																if wasKickedFromSpectate then
+																	if DecisionOpen[0] then
+																		sampSendChat("/reoff")
+																		DecisionOpen[0] = false
+																		isProcessing = false
+																		pendingReport = nil
+																		wasKickedFromSpectate = false
+																		wasSpectating = false
+																		lastDecisionCloseTime = os.clock() * 1000
+																	end
+																	break
+																end
+																wait(10)
+															end
+															isProcessing = false
+															playerInCarTriggered[i] = nil
+														end
+													end
+												end
+											else
+												playerInCarTriggered[i] = nil
+											end
+										end
+									end
+								end
+								
+								playerInCarLastCheckTime[i] = nowTime
+							end
+						else
+							playerInCarPositions[i] = nil
+							playerInCarLastCheckTime[i] = nil
+							playerInCarTriggered[i] = nil
+						end
+					end
+				end
+			end
+
+			::continue_loop::
+
+			local leftDown = isKeyDown(0x25)
+			local rightDown = isKeyDown(0x27)
+            if searchMode == 'idle' and rightDown and not prevRightDown and not isProcessing and #teleportCoords > 0 and not sampIsChatInputActive() then
+				local coord = teleportCoords[teleportIndex]
+				local currentTime = os.clock() * 1000
+				if (currentTime - lastCommandTime) >= commandCooldown then
+					local world = tonumber(coord.world) or 0
+					local interior = tonumber(coord.interior) or 0
+					sampSendChat(string.format("/gc %.2f %.2f %.2f %d %d", coord.x, coord.y, coord.z, world, interior))
+					lastCommandTime = currentTime
+					local pointName = teleportNames[teleportIndex] and ffi.string(teleportNames[teleportIndex]) or string.format('Точка %d', teleportIndex)
+					local notificationText = string.format(u8'Телепортировался к: %s', pointName)
+					addNotification(notificationText)
+				end
+				teleportIndex = teleportIndex + 1
+				if teleportIndex > #teleportCoords then teleportIndex = 1 end
+				lastPlayerFoundAt = os.clock()
+			end
+            if searchMode == 'idle' and leftDown and not prevLeftDown and not isProcessing and #teleportCoords > 0 and not sampIsChatInputActive() then
+				teleportIndex = teleportIndex - 1
+				if teleportIndex < 1 then teleportIndex = #teleportCoords end
+				local coord = teleportCoords[teleportIndex]
+				local currentTime = os.clock() * 1000
+				if (currentTime - lastCommandTime) >= commandCooldown then
+					local world = tonumber(coord.world) or 0
+					local interior = tonumber(coord.interior) or 0
+					sampSendChat(string.format("/gc %.2f %.2f %.2f %d %d", coord.x, coord.y, coord.z, world, interior))
+					lastCommandTime = currentTime
+					local pointName = teleportNames[teleportIndex] and ffi.string(teleportNames[teleportIndex]) or string.format('Точка %d', teleportIndex)
+					local notificationText = string.format(u8'Телепортировался к %s', pointName)
+					addNotification(notificationText)
+				end
+				lastPlayerFoundAt = os.clock()
+			end
+			prevLeftDown = leftDown
+			prevRightDown = rightDown
+
+			if (os.clock() * 1000 - lastCommandTime) < commandCooldown then
+				wait(50)
+			else
+				wait(1)
+			end
+		end
+	end)
+
+	if searchMode == 'serch' then
+		currentSearchTargetId = nil
+		if searchControllerThread == nil then
+			searchControllerThread = lua_thread.create(function()
+				while isRunning and searchMode == 'serch' do
+                    local candidates = {}
+                    for i = 0, 1000 do
+                        if sampIsPlayerConnected(i) then
+                            local lvl = sampGetPlayerScore(i)
+                            if lvl >= 1 and lvl <= 5 then
+                                local name = sampGetPlayerNickname(i)
+                                if name and name ~= '' then table.insert(candidates, { id = i, name = name }) end
+                            end
+                        end
+                    end
+
+					if #candidates == 0 then
+						local msg = u8:decode(u8'играков с 1-5 уровнем нет')
+						if type(sampAddChatMessage) == 'function' then sampAddChatMessage(msg, -1) end
+						isRunning = false
+						break
+					end
+
+                    local idx = 1
+                    while idx <= #candidates do
+                        local p = candidates[idx]
+						if not isRunning or searchMode ~= 'serch' then break end
+						while DecisionOpen[0] do wait(50) end
+                        if not sampIsPlayerConnected(p.id) then
+                            table.remove(candidates, idx)
+                            goto next_candidate
+                        end
+						local nowMs = os.clock() * 1000
+						if (nowMs - lastCommandTime) >= commandCooldown then
+							sampSendChat(string.format('/re %s', p.name))
+							lastCommandTime = nowMs
+							reCommandTime = os.clock()
+						end
+						currentSearchTargetId = p.id
+                        local untilTime = os.clock() + 7.0
+						while os.clock() < untilTime do
+							if not isRunning or searchMode ~= 'serch' then break end
+							wait(50)
+						end
+						if DecisionOpen[0] then
+							while DecisionOpen[0] and isRunning and searchMode == 'serch' do wait(50) end
+						end
+                        if banOccurredFlag then
+                            banOccurredFlag = false
+                            local untilOff = os.clock() + 1.0
+                            while os.clock() < untilOff do
+                                if not isRunning or searchMode ~= 'serch' then break end
+                                wait(50)
+                            end
+                        end
+                        idx = idx + 1
+                        ::next_candidate::
+                    end
+				end
+			end)
+		end
+	end
+end
+
+-- ===== ФУНКЦИЯ ОСТАНОВКИ СКАНЕРА =====
+function stopScanner()
+	if not isRunning then return end
+	isRunning = false
+	if stats.sessionStartTime > 0 then
+		local sessionTime = os.clock() - stats.sessionStartTime
+		stats.totalWorkTime = stats.totalWorkTime + sessionTime
+		stats.sessionStartTime = 0
+	end
+	addNotification(u8'Закончил работу')
+	suppressServerMessages = false
 end
 
 imgui.OnFrame(function() return UpdateWindowState[0] end, function(player)
@@ -1469,861 +1790,477 @@ imgui.OnFrame(function() return WinState[0] end, function(player)
 		welcomeAnimationStartTime = os.clock()
 		welcomeAnimationJustCompleted = false
 	elseif showWelcomeAnimation and not returnAnimationShown and returnAnimationStartTime == 0 and not welcomeAnimationJustCompleted then
-
-
 		returnAnimationStartTime = os.clock()
 	end
 	
 	imgui.SetNextWindowPos(imgui.ImVec2(500,200), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
-	    imgui.SetNextWindowSize(imgui.ImVec2(980, 740), imgui.Cond.Always)
+	imgui.SetNextWindowSize(imgui.ImVec2(980, 740), imgui.Cond.Always)
 	imgui.Begin(u8'BBot v2.0, давай побаним вместе!', WinState, imgui.WindowFlags.NoResize + imgui.WindowFlags.NoCollapse)
 	pushBodyFont()
 
-	    local isAnimationPlaying = false
-	    local uiAlpha = 1.0
-	    local uiFadeInDuration = 0.8
-	    
-	    if not showWelcomeAnimation and welcomeAnimationStartTime > 0 then
-
-		    local currentTime = os.clock()
-		    local elapsed = currentTime - welcomeAnimationStartTime
-		    local fadeInDuration = 0.5
-		    local showDuration = 6.0
-		    local fadeOutDuration = 0.5
-		    local totalDuration = fadeInDuration + showDuration + fadeOutDuration
-		    
-		    if elapsed < totalDuration then
-
-			    isAnimationPlaying = true
-			    uiAlpha = 0.0
-		    else
-
-			    local timeSinceAnimationEnd = elapsed - totalDuration
-			    if timeSinceAnimationEnd < uiFadeInDuration then
-
-				    uiAlpha = timeSinceAnimationEnd / uiFadeInDuration
-			    else
-
-				    uiAlpha = 1.0
-			    end
-		    end
-	    elseif showWelcomeAnimation and returnAnimationStartTime > 0 and not returnAnimationShown then
-
-		    local currentTime = os.clock()
-		    local elapsed = currentTime - returnAnimationStartTime
-		    local fadeInDuration = 0.5
-		    local showDuration = 1.5
-		    local fadeOutDuration = 0.5
-		    local totalDuration = fadeInDuration + showDuration + fadeOutDuration
-		    
-		    if elapsed < totalDuration then
-
-			    isAnimationPlaying = true
-			    uiAlpha = 0.0
-		    else
-
-			    local timeSinceAnimationEnd = elapsed - totalDuration
-			    if timeSinceAnimationEnd < uiFadeInDuration then
-
-				    uiAlpha = timeSinceAnimationEnd / uiFadeInDuration
-			    else
-
-				    uiAlpha = 1.0
-			    end
-
-			    returnAnimationShown = true
-		    end
-	    else
-
-		    uiAlpha = 1.0
-	    end
-
-	    if not isAnimationPlaying then
-
-		    local style = imgui.GetStyle()
-		    local originalChildBg = style.Colors[imgui.Col.ChildBg]
-		    local originalText = style.Colors[imgui.Col.Text]
-		    local originalFrameBg = style.Colors[imgui.Col.FrameBg]
-		    local originalButton = style.Colors[imgui.Col.Button]
-		    local originalButtonHovered = style.Colors[imgui.Col.ButtonHovered]
-		    local originalButtonActive = style.Colors[imgui.Col.ButtonActive]
-		    
-		    imgui.PushStyleColor(imgui.Col.ChildBg, imgui.ImVec4(
-			    originalChildBg.x, originalChildBg.y, originalChildBg.z, originalChildBg.w * uiAlpha
-		    ))
-		    imgui.PushStyleColor(imgui.Col.Text, imgui.ImVec4(
-			    originalText.x, originalText.y, originalText.z, originalText.w * uiAlpha
-		    ))
-		    imgui.PushStyleColor(imgui.Col.FrameBg, imgui.ImVec4(
-			    originalFrameBg.x, originalFrameBg.y, originalFrameBg.z, originalFrameBg.w * uiAlpha
-		    ))
-		    imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(
-			    originalButton.x, originalButton.y, originalButton.z, originalButton.w * uiAlpha
-		    ))
-		    imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImVec4(
-			    originalButtonHovered.x, originalButtonHovered.y, originalButtonHovered.z, originalButtonHovered.w * uiAlpha
-		    ))
-		    imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImVec4(
-			    originalButtonActive.x, originalButtonActive.y, originalButtonActive.z, originalButtonActive.w * uiAlpha
-		    ))
-
-		    local mainAvail = imgui.GetContentRegionAvail()
-		    local outerSidePadding = 12
-		    local leftColWidth = math.floor((mainAvail.x - outerSidePadding * 3) / 2)
-
-		    local reservedForSocialButtons = 80.0
-		    local columnsHeight = mainAvail.y - reservedForSocialButtons
-		    imgui.SetCursorPosX(imgui.GetCursorPosX() + outerSidePadding)
-		    
-		    imgui.BeginChild('##col_left', imgui.ImVec2(leftColWidth, columnsHeight), false, imgui.WindowFlags.NoScrollbar)
-
-		    local avail = imgui.GetContentRegionAvail()
-		    local sidePadding = 12
-		    local bottomButtonHeight = 32.0
-		    local reservedForButton = bottomButtonHeight + 30.0
-		    local cardHeight = avail.y - reservedForButton
-		    imgui.SetCursorPosX(imgui.GetCursorPosX() + sidePadding)
-		    
-		    imgui.BeginChild('##card_main', imgui.ImVec2(avail.x - sidePadding * 2, cardHeight), true, imgui.WindowFlags.NoScrollbar)
-
-	local label = isRunning and u8'Стоп' or u8'Начать'
-	local fullWidth = imgui.GetContentRegionAvail().x
-
-	local mainButtonColor = isRunning and 
-		imgui.ImVec4(0.85, 0.20, 0.22, 0.90) or
-		imgui.ImVec4(0.30, 0.70, 0.40, 0.90)
-
-	animationTime = animationTime + 0.03
-	local pulse = 0.92 + 0.08 * math.sin(animationTime * 1.5)
+	local isAnimationPlaying = false
+	local uiAlpha = 1.0
+	local uiFadeInDuration = 0.8
 	
-	local animColor = imgui.ImVec4(
-		mainButtonColor.x * pulse,
-		mainButtonColor.y * pulse,
-		mainButtonColor.z * pulse,
-		mainButtonColor.w
-	)
-	
-	imgui.PushStyleColor(imgui.Col.Button, animColor)
-	imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImVec4(
-		mainButtonColor.x * 1.15,
-		mainButtonColor.y * 1.15,
-		mainButtonColor.z * 1.15,
-		0.95
-	))
-	imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImVec4(
-		mainButtonColor.x * 1.25,
-		mainButtonColor.y * 1.25,
-		mainButtonColor.z * 1.25,
-		1.00
-	))
-
-	pushHeadingFont()
-	local mainButtonClicked = imgui.Button(label, imgui.ImVec2(fullWidth, 38))
-	popHeadingFont()
-	if mainButtonClicked then
-		if not isRunning then
-			isRunning = true
-			-- Начало отслеживания времени работы
-			stats.sessionStartTime = os.clock()
-			addNotification(u8'Начал искать')
-			WinState[0] = false
-			lastPlayerFoundAt = os.clock()
-				scannerThread = lua_thread.create(function()
-				while isRunning do
-					local nowTime = os.clock()
-					local myX, myY, myZ = getCharCoordinates(PLAYER_PED)
-					local pcallOk, sampOk, myId = pcall(sampGetPlayerIdByCharHandle, PLAYER_PED)
-					-- В режиме 'idle' сканируем всех, в 'serch' — только текущую цель (объявление ДО возможного goto)
-					startId, endId, step = 0, 1000, 1
-					if searchMode == 'serch' then
-						if currentSearchTargetId ~= nil then
-							startId, endId = currentSearchTargetId, currentSearchTargetId
-						else
-							startId, endId = 1, 0 -- пропустить цикл
-						end
-					end
-					if not pcallOk or not sampOk or not myId then
-						wait(100)
-						goto continue_loop
-					end
-
-					for i = startId, endId, step do
-						if sampIsPlayerConnected(i) and i ~= myId then
-							local ok, ped = sampGetCharHandleBySampPlayerId(i)
-							if ok then
-								local px, py, pz = getCharCoordinates(ped)
-
-								local last = playerLastPos[i]
-								local speedKmh = nil
-								if last ~= nil then
-									local dt = nowTime - last.t
-									if dt > 0 then
-										local dx, dy, dz = px - last.x, py - last.y, pz - last.z
-										local dist = math.sqrt(dx*dx + dy*dy + dz*dz)
-										local mps = dist / dt
-										speedKmh = mps * 3.6
-									end
-								end
-								playerLastPos[i] = { x = px, y = py, z = pz, t = nowTime }
-
-								if speedKmh ~= nil and speedKmh > 500.0 and not isCharInAnyCar(ped) then
-									local dxm, dym, dzm = myX - px, myY - py, myZ - pz
-									local distanceToMe = math.sqrt(dxm*dxm + dym*dym + dzm*dzm)
-									if distanceToMe <= 300.0 then
-										local level = sampGetPlayerScore(i)
-										if level >= 1 and level <= 5 then
-
-											lastPlayerFoundAt = nowTime
-
-											local lastTriggerTime = triggeredInRadiusTime[i] or 0
-											if (nowTime - lastTriggerTime) >= 10.0 then
-												triggeredInRadius[i] = nil
-												triggeredInRadiusTime[i] = nil
-											end
-											
-																						if not triggeredInRadius[i] then
-												local lastTrig = playerLastTriggeredAt[i] or 0
-												if (nowTime - lastTrig) >= 1.0 and not isProcessing then
-													triggeredInRadius[i] = true
-													triggeredInRadiusTime[i] = nowTime
-													playerLastTriggeredAt[i] = nowTime
-													isProcessing = true
-													local name = sampGetPlayerNickname(i)
-													local decodedName = u8:decode(name, 'CP1251')
-													addNotification(string.format(u8'Нашел %s', decodedName))
-
-                                                    if backgroundMode[0] and not isRunning then
-                                                        -- Фоновый режим: не начинаем слежку, показываем подсказку и сохраняем кандидата
-                                                        backgroundPending = { id = i, name = name, level = level, distance = distanceToMe }
-                                                        local keyName = vkeys.id_to_name(activationKey[0]) or string.format("0x%02X", activationKey[0])
-                                                        local decodedName = u8:decode(name, 'CP1251')
-                                                        addNotification(string.format(u8'%s возможно бот — нажмите %s', decodedName, keyName))
-                                                        isProcessing = false
-                                                    else
-                                                                    if backgroundMode[0] and not isRunning then
-                                                                        backgroundPending = { id = i, name = name, level = level, distance = distanceToMe }
-                                                                        local keyName = vkeys.id_to_name(activationKey[0]) or string.format("0x%02X", activationKey[0])
-                                                                        local decodedName = u8:decode(name, 'CP1251')
-                                                                        addNotification(string.format(u8'%s возможно бот — нажмите %s', decodedName, keyName))
-                                                                        isProcessing = false
-                                                                    else
-                                                                        local currentTime = os.clock() * 1000
-                                                                        local reTime = nil
-                                                                        if (currentTime - lastCommandTime) >= commandCooldown and (currentTime - lastDecisionCloseTime) >= 500 then
-                                                                            sampSendChat(string.format("/re %s", name))
-                                                                            lastCommandTime = currentTime
-                                                                            reTime = os.clock()
-                                                                            reCommandTime = os.clock()
-                                                                        end
-
-                                                                        pendingReport = { id = i, name = name, level = level, distance = distanceToMe, ip = "неизвестно", reTime = reTime }
-                                                                        DecisionOpen[0] = true
-                                                                        wasKickedFromSpectate = false
-                                                                        banCountdownStartTime = os.clock()
-                                                                        autoBanTriggered = false
-                                                                        -- Обновление статистики обнаружений
-                                                                        stats.detectionsCount = stats.detectionsCount + 1
-                                                                    end
-                                                    end
-
-													wait(500)
-
-													if not wasSpectating then
-														wasSpectating = true
-													end
-													while DecisionOpen[0] do
-
-														if wasKickedFromSpectate then
-
-															if DecisionOpen[0] then
-																sampSendChat("/reoff")
-																DecisionOpen[0] = false
-																isProcessing = false
-																pendingReport = nil
-																wasKickedFromSpectate = false
-																wasSpectating = false
-																lastDecisionCloseTime = os.clock() * 1000
-															end
-															break
-														end
-														wait(10)
-													end
-													isProcessing = false
-												end
-											end
-										end
-									else
-										triggeredInRadius[i] = nil
-										triggeredInRadiusTime[i] = nil
-									end
-								elseif isCharInAnyCar(ped) then
-									-- Проверка игроков в машине на телепорт
-									local lastCheckTime = playerInCarLastCheckTime[i] or 0
-									local timeSinceLastCheck = (nowTime - lastCheckTime) * 1000.0 -- в миллисекундах
-									
-									-- Проверяем каждые 10мс
-									if timeSinceLastCheck >= 10.0 then
-										if not playerInCarPositions[i] then
-											playerInCarPositions[i] = {}
-										end
-										
-										-- Сохраняем текущую позицию
-										table.insert(playerInCarPositions[i], { x = px, y = py, z = pz, t = nowTime })
-										
-										-- Оставляем только последние 2 позиции для проверки
-										if #playerInCarPositions[i] > 2 then
-											table.remove(playerInCarPositions[i], 1)
-										end
-										
-										-- Проверяем расстояние между позициями если есть минимум 2 позиции
-										if #playerInCarPositions[i] >= 2 then
-											local prevPos = playerInCarPositions[i][#playerInCarPositions[i] - 1]
-											local currPos = playerInCarPositions[i][#playerInCarPositions[i]]
-											local dt = currPos.t - prevPos.t
-											
-											if dt > 0 then
-												local dx = currPos.x - prevPos.x
-												local dy = currPos.y - prevPos.y
-												local dz = currPos.z - prevPos.z
-												local distance = math.sqrt(dx*dx + dy*dy + dz*dz)
-												
-												-- Если расстояние слишком большое - это телепорт
-												if distance > teleportDetectionDistance then
-													local dxm, dym, dzm = myX - px, myY - py, myZ - pz
-													local distanceToMe = math.sqrt(dxm*dxm + dym*dym + dzm*dzm)
-													if distanceToMe <= 300.0 then
-														local level = sampGetPlayerScore(i)
-														if level >= 1 and level <= 5 then
-															-- Сбрасываем триггер если прошло 10 секунд
-															local lastTriggerTime = triggeredInRadiusTime[i] or 0
-															if (nowTime - lastTriggerTime) >= 10.0 then
-																playerInCarTriggered[i] = nil
-															end
-															
-															if not playerInCarTriggered[i] then
-																local lastTrig = playerLastTriggeredAt[i] or 0
-																if (nowTime - lastTrig) >= 1.0 and not isProcessing then
-																	playerInCarTriggered[i] = true
-																	triggeredInRadiusTime[i] = nowTime
-																	playerLastTriggeredAt[i] = nowTime
-																	isProcessing = true
-																	local name = sampGetPlayerNickname(i)
-																	local decodedName = u8:decode(name, 'CP1251')
-																	addNotification(string.format(u8'Нашел %s (в машине)', decodedName))
-
-																	local currentTime = os.clock() * 1000
-																	local reTime = nil
-																	if (currentTime - lastCommandTime) >= commandCooldown and (currentTime - lastDecisionCloseTime) >= 500 then
-																		sampSendChat(string.format("/re %s", name))
-																		lastCommandTime = currentTime
-																		reTime = os.clock()
-																		reCommandTime = os.clock()
-																	end
-
-																	pendingReport = { id = i, name = name, level = level, distance = distanceToMe, ip = "неизвестно", reTime = reTime }
-																	DecisionOpen[0] = true
-																	wasKickedFromSpectate = false
-																	banCountdownStartTime = os.clock()
-																	autoBanTriggered = false
-																	-- Обновление статистики обнаружений
-																	stats.detectionsCount = stats.detectionsCount + 1
-
-																	wait(500)
-
-																	if not wasSpectating then
-																		wasSpectating = true
-																	end
-																	while DecisionOpen[0] do
-																		if wasKickedFromSpectate then
-																			if DecisionOpen[0] then
-																				sampSendChat("/reoff")
-																				DecisionOpen[0] = false
-																				isProcessing = false
-																				pendingReport = nil
-																				wasKickedFromSpectate = false
-																				wasSpectating = false
-																				lastDecisionCloseTime = os.clock() * 1000
-																			end
-																			break
-																		end
-																		wait(10)
-																	end
-																	isProcessing = false
-																	playerInCarTriggered[i] = nil
-																end
-															end
-														end
-													else
-														-- Игрок в машине слишком далеко - очищаем триггер
-														playerInCarTriggered[i] = nil
-													end
-												end
-											end
-										end
-										
-										playerInCarLastCheckTime[i] = nowTime
-									end
-								else
-									-- Игрок не в машине и не с высокой скоростью - очищаем данные
-									playerInCarPositions[i] = nil
-									playerInCarLastCheckTime[i] = nil
-									playerInCarTriggered[i] = nil
-								end
-							end
-						end
-					end
-
-
-
-					::continue_loop::
-
-					local leftDown = isKeyDown(0x25)
-					local rightDown = isKeyDown(0x27)
-                    if searchMode == 'idle' and rightDown and not prevRightDown and not isProcessing and #teleportCoords > 0 and not sampIsChatInputActive() then
-						local coord = teleportCoords[teleportIndex]
-
-						local currentTime = os.clock() * 1000
-						if (currentTime - lastCommandTime) >= commandCooldown then
-							local world = tonumber(coord.world) or 0
-							local interior = tonumber(coord.interior) or 0
-							sampSendChat(string.format("/gc %.2f %.2f %.2f %d %d", coord.x, coord.y, coord.z, world, interior))
-							lastCommandTime = currentTime
-
-					local pointName = teleportNames[teleportIndex] and ffi.string(teleportNames[teleportIndex]) or string.format('Точка %d', teleportIndex)
-
-					local notificationText = string.format(u8'Телепортировался к: %s', pointName)
-					addNotification(notificationText)
-						end
-						teleportIndex = teleportIndex + 1
-						if teleportIndex > #teleportCoords then teleportIndex = 1 end
-						lastPlayerFoundAt = os.clock()
-					end
-                    if searchMode == 'idle' and leftDown and not prevLeftDown and not isProcessing and #teleportCoords > 0 and not sampIsChatInputActive() then
-						teleportIndex = teleportIndex - 1
-						if teleportIndex < 1 then teleportIndex = #teleportCoords end
-						local coord = teleportCoords[teleportIndex]
-
-						local currentTime = os.clock() * 1000
-						if (currentTime - lastCommandTime) >= commandCooldown then
-							local world = tonumber(coord.world) or 0
-							local interior = tonumber(coord.interior) or 0
-							sampSendChat(string.format("/gc %.2f %.2f %.2f %d %d", coord.x, coord.y, coord.z, world, interior))
-							lastCommandTime = currentTime
-
-					local pointName = teleportNames[teleportIndex] and ffi.string(teleportNames[teleportIndex]) or string.format('Точка %d', teleportIndex)
-
-					local notificationText = string.format(u8'Телепортировался к %s', pointName)
-					addNotification(notificationText)
-						end
-						lastPlayerFoundAt = os.clock()
-					end
-					prevLeftDown = leftDown
-					prevRightDown = rightDown
-
-					if (os.clock() * 1000 - lastCommandTime) < commandCooldown then
-						wait(50)
-					else
-						wait(1)
-					end
-				end
-			end)
-
-			-- Контроллер режима 'serch': последовательно вызывает /re на игроков 1-5 уровня
-			if searchMode == 'serch' then
-				currentSearchTargetId = nil
-				if searchControllerThread == nil then
-					searchControllerThread = lua_thread.create(function()
-						while isRunning and searchMode == 'serch' do
-                            -- сформировать список кандидатов (единожды на цикл)
-                            local candidates = {}
-                            for i = 0, 1000 do
-                                if sampIsPlayerConnected(i) then
-                                    local lvl = sampGetPlayerScore(i)
-                                    if lvl >= 1 and lvl <= 5 then
-                                        local name = sampGetPlayerNickname(i)
-                                        if name and name ~= '' then table.insert(candidates, { id = i, name = name }) end
-                                    end
-                                end
-                            end
-
-							if #candidates == 0 then
-								local msg = u8:decode(u8'играков с 1-5 уровнем нет')
-								if type(sampAddChatMessage) == 'function' then sampAddChatMessage(msg, -1) end
-								isRunning = false
-								break
-							end
-
-                            local idx = 1
-                            while idx <= #candidates do
-                                local p = candidates[idx]
-								if not isRunning or searchMode ~= 'serch' then break end
-								-- дождаться закрытия окна решения, если открыто
-								while DecisionOpen[0] do wait(50) end
-                                -- удалить из очереди тех, кто вышел с сервера; новых не добавляем
-                                if not sampIsPlayerConnected(p.id) then
-                                    table.remove(candidates, idx)
-                                    goto next_candidate
-                                end
-								-- выполнить /re на игрока
-								local nowMs = os.clock() * 1000
-								if (nowMs - lastCommandTime) >= commandCooldown then
-									sampSendChat(string.format('/re %s', p.name))
-									lastCommandTime = nowMs
-									reCommandTime = os.clock()
-								end
-								currentSearchTargetId = p.id
-                                -- пауза 7 секунд между проверками
-                                local untilTime = os.clock() + 7.0
-								while os.clock() < untilTime do
-									if not isRunning or searchMode ~= 'serch' then break end
-									wait(50)
-								end
-								-- если окно решения открылось (обнаружение), ждать закрытия
-								if DecisionOpen[0] then
-									while DecisionOpen[0] and isRunning and searchMode == 'serch' do wait(50) end
-								end
-                                -- если произошёл бан, небольшая пауза 1с перед следующим
-                                if banOccurredFlag then
-                                    banOccurredFlag = false
-                                    local untilOff = os.clock() + 1.0
-                                    while os.clock() < untilOff do
-                                        if not isRunning or searchMode ~= 'serch' then break end
-                                        wait(50)
-                                    end
-                                end
-                                idx = idx + 1
-                                ::next_candidate::
-                            end
-							-- цикл: пересобрать список заново
-						end
-					end)
-				end
-			end
+	if not showWelcomeAnimation and welcomeAnimationStartTime > 0 then
+		local currentTime = os.clock()
+		local elapsed = currentTime - welcomeAnimationStartTime
+		local fadeInDuration = 0.5
+		local showDuration = 6.0
+		local fadeOutDuration = 0.5
+		local totalDuration = fadeInDuration + showDuration + fadeOutDuration
+		
+		if elapsed < totalDuration then
+			isAnimationPlaying = true
+			uiAlpha = 0.0
 		else
-			isRunning = false
-			-- Обновление общего времени работы
-			if stats.sessionStartTime > 0 then
-				local sessionTime = os.clock() - stats.sessionStartTime
-				stats.totalWorkTime = stats.totalWorkTime + sessionTime
-				stats.sessionStartTime = 0
-			end
-			addNotification(u8'Закончил работу')
-			suppressServerMessages = false
-		end
-	end
-	imgui.PopStyleColor(3)
-	
-	imgui.Dummy(imgui.ImVec2(0, 6))
-	
-
-
-HeadingText(u8'Команда для бана бота')
-	imgui.PushItemWidth(-1)
-	local changed = imgui.InputText(u8'##ban_msg', banMessage, ffi.sizeof(banMessage))
-	if changed then saveSettings() end
-	imgui.PopItemWidth()
-	imgui.Text(u8'Тег: {BotName} будет заменён на ник цели')
-	
-imgui.Dummy(imgui.ImVec2(0, 8))
-imgui.Separator()
-imgui.Dummy(imgui.ImVec2(0, 6))
-
--- Режим поиска ботов
-HeadingText(u8'Режим поиска ботов:')
-imgui.Dummy(imgui.ImVec2(0, 4))
-do
-    local modeAvailW = imgui.GetContentRegionAvail().x
-    local modeBtnW = (modeAvailW - 8.0) / 2
-    if searchMode == 'idle' then
-        imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.50, 0.28, 0.88, 0.90))
-        imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImVec4(0.60, 0.35, 0.98, 0.95))
-        imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImVec4(0.70, 0.42, 1.00, 1.00))
-        pushHeadingFont()
-        imgui.Button(u8'Idle', imgui.ImVec2(modeBtnW, 30))
-        popHeadingFont()
-        if imgui.IsItemHovered() then
-            imgui.BeginTooltip()
-            imgui.Text(u8'Стандартный режим')
-            imgui.Text(u8'Сканирует всех в зоне стрима')
-            imgui.Text(u8'и срабатывает по признакам бота')
-            imgui.EndTooltip()
-        end
-        imgui.PopStyleColor(3)
-    else
-        if SecondaryButton(u8'Idle', imgui.ImVec2(modeBtnW, 30)) then searchMode = 'idle'; saveSettings() end
-        if imgui.IsItemHovered() then
-            imgui.BeginTooltip()
-            imgui.Text(u8'Стандартный режим')
-            imgui.Text(u8'Сканирует всех в зоне стрима')
-            imgui.Text(u8'и срабатывает по признакам бота')
-            imgui.EndTooltip()
-        end
-    end
-    imgui.SameLine()
-    if searchMode == 'serch' then
-        imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.50, 0.28, 0.88, 0.90))
-        imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImVec4(0.60, 0.35, 0.98, 0.95))
-        imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImVec4(0.70, 0.42, 1.00, 1.00))
-        pushHeadingFont()
-        imgui.Button(u8'Serch', imgui.ImVec2(modeBtnW, 30))
-        popHeadingFont()
-        if imgui.IsItemHovered() then
-            imgui.BeginTooltip()
-            imgui.Text(u8'Последовательная проверка')
-            imgui.Text(u8'По очереди делает /re на игроков 1–5 уровня')
-            imgui.Text(u8'Анализирует только текущую цель слежки')
-            imgui.EndTooltip()
-        end
-        imgui.PopStyleColor(3)
-    else
-        if SecondaryButton(u8'Serch', imgui.ImVec2(modeBtnW, 30)) then searchMode = 'serch'; saveSettings() end
-        if imgui.IsItemHovered() then
-            imgui.BeginTooltip()
-            imgui.Text(u8'Последовательная проверка')
-            imgui.Text(u8'По очереди делает /re на игроков 1–5 уровня')
-            imgui.Text(u8'Анализирует только текущую цель слежки')
-            imgui.EndTooltip()
-        end
-    end
-end
-
-imgui.Dummy(imgui.ImVec2(0, 8))
-imgui.Separator()
-imgui.Dummy(imgui.ImVec2(0, 6))
-	
-HeadingText(u8'Горячие клавиши:')
-	imgui.Dummy(imgui.ImVec2(0, 4))
-
-	local availWidth = imgui.GetContentRegionAvail().x
-	local labelWidth = 160.0
-	local valueWidth = 80.0
-	local changeBtnWidth = 100.0
-	local changeBtnX = labelWidth + valueWidth + 12
-
-	imgui.Text(u8'Клавиша "Забанить":')
-	imgui.SameLine(labelWidth)
-	local keyName = vkeys.id_to_name(banKey[0]) or string.format("0x%02X", banKey[0])
-	imgui.Text(keyName)
-	imgui.SameLine(changeBtnX)
-	if waitingForBanKey then
-		imgui.TextColored(imgui.ImVec4(1.0, 0.5, 0.0, 1.0), u8'Нажмите...')
-	else
-		if SecondaryButton(u8'Изменить##ban_key', imgui.ImVec2(changeBtnWidth, 28)) then
-			waitingForBanKey = true
-		end
-	end
-	imgui.Dummy(imgui.ImVec2(0, 6))
-
-	imgui.Text(u8'Клавиша "Пропустить":')
-	imgui.SameLine(labelWidth)
-	local skipKeyName = vkeys.id_to_name(skipKey[0]) or string.format("0x%02X", skipKey[0])
-	imgui.Text(skipKeyName)
-	imgui.SameLine(changeBtnX)
-	if waitingForSkipKey then
-		imgui.TextColored(imgui.ImVec4(1.0, 0.5, 0.0, 1.0), u8'Нажмите...')
-	else
-		if SecondaryButton(u8'Изменить##skip_key', imgui.ImVec2(changeBtnWidth, 28)) then
-			waitingForSkipKey = true
-		end
-	end
-	imgui.Dummy(imgui.ImVec2(0, 6))
-	
-	imgui.Dummy(imgui.ImVec2(0, 8))
-	imgui.Separator()
-	imgui.Dummy(imgui.ImVec2(0, 6))
-
--- Фоновый режим и клавиша активации
-HeadingText(u8'Фоновый режим:')
-imgui.SameLine()
-local bgEnabled = backgroundMode[0]
-if imgui.Checkbox(u8'##bg_mode', backgroundMode) then
-    saveSettings()
-end
-if imgui.IsItemHovered() then
-    imgui.BeginTooltip()
-    imgui.Text(u8'Фоновый режим, проверяет ботов без /re и окна')
-    imgui.Text(u8'После предлогает уйти за ним в слежку, если подозрения подтверждаются')
-    imgui.EndTooltip()
-end
-
-imgui.Dummy(imgui.ImVec2(0, 4))
-HeadingText(u8'Клавиша активации:')
-imgui.SameLine(160.0)
-local actKeyName = vkeys.id_to_name(activationKey[0]) or string.format("0x%02X", activationKey[0])
-imgui.Text(actKeyName)
-imgui.SameLine(160.0 + 80.0 + 12)
-if waitingForActivationKey then
-    imgui.TextColored(imgui.ImVec4(1.0, 0.5, 0.0, 1.0), u8'Нажмите...')
-else
-    if SecondaryButton(u8'Изменить##act_key', imgui.ImVec2(100.0, 28)) then
-        waitingForActivationKey = true
-    end
-end
-
-	-- Разделитель между фоновым режимом и режимом бана
-	imgui.Dummy(imgui.ImVec2(0, 8))
-	imgui.Separator()
-	imgui.Dummy(imgui.ImVec2(0, 6))
-HeadingText(u8'Режим бана:')
-	imgui.Dummy(imgui.ImVec2(0, 4))
-	
-	local availWidth2 = imgui.GetContentRegionAvail().x
-	local buttonSpacing2 = 8.0
-	local banModeButtonWidth = (availWidth2 - buttonSpacing2) / 2
-
-	if isAutoBan[0] then
-
-		local activeColor = imgui.ImVec4(0.50, 0.28, 0.88, 0.90)
-		local hoverColor = imgui.ImVec4(0.60, 0.35, 0.98, 0.95)
-		local pressedColor = imgui.ImVec4(0.70, 0.42, 1.00, 1.00)
-		imgui.PushStyleColor(imgui.Col.Button, activeColor)
-		imgui.PushStyleColor(imgui.Col.ButtonHovered, hoverColor)
-		imgui.PushStyleColor(imgui.Col.ButtonActive, pressedColor)
-		pushHeadingFont()
-		local autoClicked = imgui.Button(u8'Auto Ban', imgui.ImVec2(banModeButtonWidth, 32))
-		popHeadingFont()
-		if autoClicked then
-			isAutoBan[0] = true
-			saveSettings()
-		end
-		imgui.PopStyleColor(3)
-		if imgui.IsItemHovered() then
-			imgui.BeginTooltip()
-			imgui.Text(u8'Автоматический режим бана')
-			imgui.Text(u8'После окончания обратного отсчета')
-			imgui.Text(u8'бан выполняется автоматически')
-			imgui.EndTooltip()
-		end
-	else
-
-		if SecondaryButton(u8'Auto Ban', imgui.ImVec2(banModeButtonWidth, 32)) then
-			isAutoBan[0] = true
-			saveSettings()
-		end
-		if imgui.IsItemHovered() then
-			imgui.BeginTooltip()
-			imgui.Text(u8'Автоматический режим бана')
-			imgui.Text(u8'После окончания обратного отсчета')
-			imgui.Text(u8'бан выполняется автоматически')
-			imgui.EndTooltip()
-		end
-	end
-	
-	imgui.SameLine()
-
-	if not isAutoBan[0] then
-
-		local activeColor = imgui.ImVec4(0.50, 0.28, 0.88, 0.90)
-		local hoverColor = imgui.ImVec4(0.60, 0.35, 0.98, 0.95)
-		local pressedColor = imgui.ImVec4(0.70, 0.42, 1.00, 1.00)
-		imgui.PushStyleColor(imgui.Col.Button, activeColor)
-		imgui.PushStyleColor(imgui.Col.ButtonHovered, hoverColor)
-		imgui.PushStyleColor(imgui.Col.ButtonActive, pressedColor)
-		pushHeadingFont()
-		local manualClicked = imgui.Button(u8'Manual Ban', imgui.ImVec2(banModeButtonWidth, 32))
-		popHeadingFont()
-		if manualClicked then
-			isAutoBan[0] = false
-			saveSettings()
-		end
-		imgui.PopStyleColor(3)
-		if imgui.IsItemHovered() then
-			imgui.BeginTooltip()
-			imgui.Text(u8'Ручной режим бана')
-			imgui.Text(u8'После окончания обратного отсчета')
-			imgui.Text(u8'требуется нажатие кнопки или клавиши')
-			imgui.EndTooltip()
-		end
-	else
-
-		if SecondaryButton(u8'Manual Ban (Рекамендуется)', imgui.ImVec2(banModeButtonWidth, 32)) then
-			isAutoBan[0] = false
-			saveSettings()
-		end
-		if imgui.IsItemHovered() then
-			imgui.BeginTooltip()
-			imgui.Text(u8'Ручной режим бана')
-			imgui.Text(u8'После окончания обратного отсчета')
-			imgui.Text(u8'требуется нажатие кнопки или клавиши')
-			imgui.EndTooltip()
-		end
-	end
-	
-	imgui.Dummy(imgui.ImVec2(0, 8))
-	imgui.Separator()
-	imgui.Dummy(imgui.ImVec2(0, 6))
-
-	imgui.AlignTextToFramePadding()
-	HeadingText(u8'Задержка обратного отсчета:')
-	imgui.SameLine()
-	imgui.PushItemWidth(120)
-
-	local prevValueBeforeCheck = banCountdownMs[0]
-	local countdownChanged = imgui.InputInt(u8'##ban_countdown_ms', banCountdownMs)
-	if countdownChanged then
-
-		if banCountdownMs[0] > 60000 then banCountdownMs[0] = 60000 end
-
-		if banCountdownMs[0] < 3000 then
-
-			if prevValueBeforeCheck >= 3000 or not lowDelayConfirmed then
-
-
-				lowDelayWarningState[0] = true
-				lowDelayContinueEnabled = false
-				lowDelayContinueEnableTime = os.clock() + 5.0
-
-				lowDelayPrevValue = prevValueBeforeCheck
+			local timeSinceAnimationEnd = elapsed - totalDuration
+			if timeSinceAnimationEnd < uiFadeInDuration then
+				uiAlpha = timeSinceAnimationEnd / uiFadeInDuration
 			else
+				uiAlpha = 1.0
+			end
+		end
+	elseif showWelcomeAnimation and returnAnimationStartTime > 0 and not returnAnimationShown then
+		local currentTime = os.clock()
+		local elapsed = currentTime - returnAnimationStartTime
+		local fadeInDuration = 0.5
+		local showDuration = 1.5
+		local fadeOutDuration = 0.5
+		local totalDuration = fadeInDuration + showDuration + fadeOutDuration
+		
+		if elapsed < totalDuration then
+			isAnimationPlaying = true
+			uiAlpha = 0.0
+		else
+			local timeSinceAnimationEnd = elapsed - totalDuration
+			if timeSinceAnimationEnd < uiFadeInDuration then
+				uiAlpha = timeSinceAnimationEnd / uiFadeInDuration
+			else
+				uiAlpha = 1.0
+			end
+			returnAnimationShown = true
+		end
+	else
+		uiAlpha = 1.0
+	end
 
-				lowDelayPrevValue = banCountdownMs[0]
+	if not isAnimationPlaying then
+		local style = imgui.GetStyle()
+		local originalChildBg = style.Colors[imgui.Col.ChildBg]
+		local originalText = style.Colors[imgui.Col.Text]
+		local originalFrameBg = style.Colors[imgui.Col.FrameBg]
+		local originalButton = style.Colors[imgui.Col.Button]
+		local originalButtonHovered = style.Colors[imgui.Col.ButtonHovered]
+		local originalButtonActive = style.Colors[imgui.Col.ButtonActive]
+		
+		imgui.PushStyleColor(imgui.Col.ChildBg, imgui.ImVec4(
+			originalChildBg.x, originalChildBg.y, originalChildBg.z, originalChildBg.w * uiAlpha
+		))
+		imgui.PushStyleColor(imgui.Col.Text, imgui.ImVec4(
+			originalText.x, originalText.y, originalText.z, originalText.w * uiAlpha
+		))
+		imgui.PushStyleColor(imgui.Col.FrameBg, imgui.ImVec4(
+			originalFrameBg.x, originalFrameBg.y, originalFrameBg.z, originalFrameBg.w * uiAlpha
+		))
+		imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(
+			originalButton.x, originalButton.y, originalButton.z, originalButton.w * uiAlpha
+		))
+		imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImVec4(
+			originalButtonHovered.x, originalButtonHovered.y, originalButtonHovered.z, originalButtonHovered.w * uiAlpha
+		))
+		imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImVec4(
+			originalButtonActive.x, originalButtonActive.y, originalButtonActive.z, originalButtonActive.w * uiAlpha
+		))
+
+		local mainAvail = imgui.GetContentRegionAvail()
+		local outerSidePadding = 12
+		local leftColWidth = math.floor((mainAvail.x - outerSidePadding * 3) / 2)
+
+		local reservedForSocialButtons = 80.0
+		local columnsHeight = mainAvail.y - reservedForSocialButtons
+		imgui.SetCursorPosX(imgui.GetCursorPosX() + outerSidePadding)
+		
+		imgui.BeginChild('##col_left', imgui.ImVec2(leftColWidth, columnsHeight), false, imgui.WindowFlags.NoScrollbar)
+
+		local avail = imgui.GetContentRegionAvail()
+		local sidePadding = 12
+		local bottomButtonHeight = 32.0
+		local reservedForButton = bottomButtonHeight + 30.0
+		local cardHeight = avail.y - reservedForButton
+		imgui.SetCursorPosX(imgui.GetCursorPosX() + sidePadding)
+		
+		imgui.BeginChild('##card_main', imgui.ImVec2(avail.x - sidePadding * 2, cardHeight), true, imgui.WindowFlags.NoScrollbar)
+
+		local label = isRunning and u8'Стоп' or u8'Начать'
+		local fullWidth = imgui.GetContentRegionAvail().x
+
+		local mainButtonColor = isRunning and 
+			imgui.ImVec4(0.85, 0.20, 0.22, 0.90) or
+			imgui.ImVec4(0.30, 0.70, 0.40, 0.90)
+
+		animationTime = animationTime + 0.03
+		local pulse = 0.92 + 0.08 * math.sin(animationTime * 1.5)
+		
+		local animColor = imgui.ImVec4(
+			mainButtonColor.x * pulse,
+			mainButtonColor.y * pulse,
+			mainButtonColor.z * pulse,
+			mainButtonColor.w
+		)
+		
+		imgui.PushStyleColor(imgui.Col.Button, animColor)
+		imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImVec4(
+			mainButtonColor.x * 1.15,
+			mainButtonColor.y * 1.15,
+			mainButtonColor.z * 1.15,
+			0.95
+		))
+		imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImVec4(
+			mainButtonColor.x * 1.25,
+			mainButtonColor.y * 1.25,
+			mainButtonColor.z * 1.25,
+			1.00
+		))
+
+		pushHeadingFont()
+		local mainButtonClicked = imgui.Button(label, imgui.ImVec2(fullWidth, 38))
+		popHeadingFont()
+		if mainButtonClicked then
+			if not isRunning then
+				startScanner()
+			else
+				stopScanner()
+			end
+		end
+		imgui.PopStyleColor(3)
+		
+		imgui.Dummy(imgui.ImVec2(0, 6))
+
+		HeadingText(u8'Команда для бана бота')
+		imgui.PushItemWidth(-1)
+		local changed = imgui.InputText(u8'##ban_msg', banMessage, ffi.sizeof(banMessage))
+		if changed then saveSettings() end
+		imgui.PopItemWidth()
+		imgui.Text(u8'Тег: {BotName} будет заменён на ник цели')
+		
+		imgui.Dummy(imgui.ImVec2(0, 8))
+		imgui.Separator()
+		imgui.Dummy(imgui.ImVec2(0, 6))
+
+		-- Режим поиска ботов
+		HeadingText(u8'Режим поиска ботов:')
+		imgui.Dummy(imgui.ImVec2(0, 4))
+		do
+			local modeAvailW = imgui.GetContentRegionAvail().x
+			local modeBtnW = (modeAvailW - 8.0) / 2
+			if searchMode == 'idle' then
+				imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.50, 0.28, 0.88, 0.90))
+				imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImVec4(0.60, 0.35, 0.98, 0.95))
+				imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImVec4(0.70, 0.42, 1.00, 1.00))
+				pushHeadingFont()
+				imgui.Button(u8'Idle', imgui.ImVec2(modeBtnW, 30))
+				popHeadingFont()
+				if imgui.IsItemHovered() then
+					imgui.BeginTooltip()
+					imgui.Text(u8'Стандартный режим')
+					imgui.Text(u8'Сканирует всех в зоне стрима')
+					imgui.Text(u8'и срабатывает по признакам бота')
+					imgui.EndTooltip()
+				end
+				imgui.PopStyleColor(3)
+			else
+				if SecondaryButton(u8'Idle', imgui.ImVec2(modeBtnW, 30)) then searchMode = 'idle'; saveSettings() end
+				if imgui.IsItemHovered() then
+					imgui.BeginTooltip()
+					imgui.Text(u8'Стандартный режим')
+					imgui.Text(u8'Сканирует всех в зоне стрима')
+					imgui.Text(u8'и срабатывает по признакам бота')
+					imgui.EndTooltip()
+				end
+			end
+			imgui.SameLine()
+			if searchMode == 'serch' then
+				imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.50, 0.28, 0.88, 0.90))
+				imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImVec4(0.60, 0.35, 0.98, 0.95))
+				imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImVec4(0.70, 0.42, 1.00, 1.00))
+				pushHeadingFont()
+				imgui.Button(u8'Serch', imgui.ImVec2(modeBtnW, 30))
+				popHeadingFont()
+				if imgui.IsItemHovered() then
+					imgui.BeginTooltip()
+					imgui.Text(u8'Последовательная проверка')
+					imgui.Text(u8'По очереди делает /re на игроков 1–5 уровня')
+					imgui.Text(u8'Анализирует только текущую цель слежки')
+					imgui.EndTooltip()
+				end
+				imgui.PopStyleColor(3)
+			else
+				if SecondaryButton(u8'Serch', imgui.ImVec2(modeBtnW, 30)) then searchMode = 'serch'; saveSettings() end
+				if imgui.IsItemHovered() then
+					imgui.BeginTooltip()
+					imgui.Text(u8'Последовательная проверка')
+					imgui.Text(u8'По очереди делает /re на игроков 1–5 уровня')
+					imgui.Text(u8'Анализирует только текущую цель слежки')
+					imgui.EndTooltip()
+				end
+			end
+		end
+
+		imgui.Dummy(imgui.ImVec2(0, 8))
+		imgui.Separator()
+		imgui.Dummy(imgui.ImVec2(0, 6))
+		
+		HeadingText(u8'Горячие клавиши:')
+		imgui.Dummy(imgui.ImVec2(0, 4))
+
+		local availWidth = imgui.GetContentRegionAvail().x
+		local labelWidth = 180.0
+		local valueWidth = 80.0
+		local changeBtnWidth = 100.0
+		local changeBtnX = labelWidth + valueWidth + 12
+
+		-- Клавиша Забанить
+		imgui.Text(u8'Клавиша "Забанить":')
+		imgui.SameLine(labelWidth)
+		local keyName = vkeys.id_to_name(banKey[0]) or string.format("0x%02X", banKey[0])
+		imgui.Text(keyName)
+		imgui.SameLine(changeBtnX)
+		if waitingForBanKey then
+			imgui.TextColored(imgui.ImVec4(1.0, 0.5, 0.0, 1.0), u8'Нажмите...')
+		else
+			if SecondaryButton(u8'Изменить##ban_key', imgui.ImVec2(changeBtnWidth, 28)) then
+				waitingForBanKey = true
+			end
+		end
+		imgui.Dummy(imgui.ImVec2(0, 6))
+
+		-- Клавиша Пропустить
+		imgui.Text(u8'Клавиша "Пропустить":')
+		imgui.SameLine(labelWidth)
+		local skipKeyName = vkeys.id_to_name(skipKey[0]) or string.format("0x%02X", skipKey[0])
+		imgui.Text(skipKeyName)
+		imgui.SameLine(changeBtnX)
+		if waitingForSkipKey then
+			imgui.TextColored(imgui.ImVec4(1.0, 0.5, 0.0, 1.0), u8'Нажмите...')
+		else
+			if SecondaryButton(u8'Изменить##skip_key', imgui.ImVec2(changeBtnWidth, 28)) then
+				waitingForSkipKey = true
+			end
+		end
+		imgui.Dummy(imgui.ImVec2(0, 6))
+
+		-- ===== НОВАЯ КЛАВИША: Открыть меню =====
+		imgui.Text(u8'Клавиша "Открыть меню":')
+		imgui.SameLine(labelWidth)
+		local menuKeyName = vkeys.id_to_name(menuKey[0]) or string.format("0x%02X", menuKey[0])
+		imgui.Text(menuKeyName)
+		imgui.SameLine(changeBtnX)
+		if waitingForMenuKey then
+			imgui.TextColored(imgui.ImVec4(1.0, 0.5, 0.0, 1.0), u8'Нажмите...')
+		else
+			if SecondaryButton(u8'Изменить##menu_key', imgui.ImVec2(changeBtnWidth, 28)) then
+				waitingForMenuKey = true
+			end
+		end
+		imgui.Dummy(imgui.ImVec2(0, 6))
+
+		-- ===== НОВАЯ КЛАВИША: Старт/Стоп =====
+		imgui.Text(u8'Клавиша "Старт/Стоп":')
+		imgui.SameLine(labelWidth)
+		local startKeyName = vkeys.id_to_name(startKey[0]) or string.format("0x%02X", startKey[0])
+		imgui.Text(startKeyName)
+		imgui.SameLine(changeBtnX)
+		if waitingForStartKey then
+			imgui.TextColored(imgui.ImVec4(1.0, 0.5, 0.0, 1.0), u8'Нажмите...')
+		else
+			if SecondaryButton(u8'Изменить##start_key', imgui.ImVec2(changeBtnWidth, 28)) then
+				waitingForStartKey = true
+			end
+		end
+		imgui.Dummy(imgui.ImVec2(0, 6))
+
+		imgui.Dummy(imgui.ImVec2(0, 8))
+		imgui.Separator()
+		imgui.Dummy(imgui.ImVec2(0, 6))
+
+		-- Фоновый режим и клавиша активации
+		HeadingText(u8'Фоновый режим:')
+		imgui.SameLine()
+		local bgEnabled = backgroundMode[0]
+		if imgui.Checkbox(u8'##bg_mode', backgroundMode) then
+			saveSettings()
+		end
+		if imgui.IsItemHovered() then
+			imgui.BeginTooltip()
+			imgui.Text(u8'Фоновый режим, проверяет ботов без /re и окна')
+			imgui.Text(u8'После предлогает уйти за ним в слежку, если подозрения подтверждаются')
+			imgui.EndTooltip()
+		end
+
+		imgui.Dummy(imgui.ImVec2(0, 4))
+		HeadingText(u8'Клавиша активации:')
+		imgui.SameLine(160.0)
+		local actKeyName = vkeys.id_to_name(activationKey[0]) or string.format("0x%02X", activationKey[0])
+		imgui.Text(actKeyName)
+		imgui.SameLine(160.0 + 80.0 + 12)
+		if waitingForActivationKey then
+			imgui.TextColored(imgui.ImVec4(1.0, 0.5, 0.0, 1.0), u8'Нажмите...')
+		else
+			if SecondaryButton(u8'Изменить##act_key', imgui.ImVec2(100.0, 28)) then
+				waitingForActivationKey = true
+			end
+		end
+
+		imgui.Dummy(imgui.ImVec2(0, 8))
+		imgui.Separator()
+		imgui.Dummy(imgui.ImVec2(0, 6))
+
+		HeadingText(u8'Режим бана:')
+		imgui.Dummy(imgui.ImVec2(0, 4))
+		
+		local availWidth2 = imgui.GetContentRegionAvail().x
+		local buttonSpacing2 = 8.0
+		local banModeButtonWidth = (availWidth2 - buttonSpacing2) / 2
+
+		if isAutoBan[0] then
+			local activeColor = imgui.ImVec4(0.50, 0.28, 0.88, 0.90)
+			local hoverColor = imgui.ImVec4(0.60, 0.35, 0.98, 0.95)
+			local pressedColor = imgui.ImVec4(0.70, 0.42, 1.00, 1.00)
+			imgui.PushStyleColor(imgui.Col.Button, activeColor)
+			imgui.PushStyleColor(imgui.Col.ButtonHovered, hoverColor)
+			imgui.PushStyleColor(imgui.Col.ButtonActive, pressedColor)
+			pushHeadingFont()
+			local autoClicked = imgui.Button(u8'Auto Ban', imgui.ImVec2(banModeButtonWidth, 32))
+			popHeadingFont()
+			if autoClicked then
+				isAutoBan[0] = true
 				saveSettings()
 			end
+			imgui.PopStyleColor(3)
+			if imgui.IsItemHovered() then
+				imgui.BeginTooltip()
+				imgui.Text(u8'Автоматический режим бана')
+				imgui.Text(u8'После окончания обратного отсчета')
+				imgui.Text(u8'бан выполняется автоматически')
+				imgui.EndTooltip()
+			end
 		else
-
-			lowDelayPrevValue = banCountdownMs[0]
-			lowDelayConfirmed = false
-			saveSettings()
+			if SecondaryButton(u8'Auto Ban', imgui.ImVec2(banModeButtonWidth, 32)) then
+				isAutoBan[0] = true
+				saveSettings()
+			end
+			if imgui.IsItemHovered() then
+				imgui.BeginTooltip()
+				imgui.Text(u8'Автоматический режим бана')
+				imgui.Text(u8'После окончания обратного отсчета')
+				imgui.Text(u8'бан выполняется автоматически')
+				imgui.EndTooltip()
+			end
 		end
-	end
-	imgui.PopItemWidth()
+		
+		imgui.SameLine()
 
-	if imgui.IsItemHovered() then
-
-		local itemMin = imgui.GetItemRectMin()
-		local itemMax = imgui.GetItemRectMax()
-		local mousePos = imgui.GetMousePos()
-
-
-		local itemWidth = itemMax.x - itemMin.x
-		local mouseOffsetX = mousePos.x - itemMin.x
-
-		if mouseOffsetX < itemWidth * 0.7 then
-			imgui.BeginTooltip()
-			imgui.Text(u8'Время обратного отсчета перед возможностью')
-			imgui.Text(u8'выполнить бан (1 секунда = 1000мс)')
-			imgui.EndTooltip()
+		if not isAutoBan[0] then
+			local activeColor = imgui.ImVec4(0.50, 0.28, 0.88, 0.90)
+			local hoverColor = imgui.ImVec4(0.60, 0.35, 0.98, 0.95)
+			local pressedColor = imgui.ImVec4(0.70, 0.42, 1.00, 1.00)
+			imgui.PushStyleColor(imgui.Col.Button, activeColor)
+			imgui.PushStyleColor(imgui.Col.ButtonHovered, hoverColor)
+			imgui.PushStyleColor(imgui.Col.ButtonActive, pressedColor)
+			pushHeadingFont()
+			local manualClicked = imgui.Button(u8'Manual Ban', imgui.ImVec2(banModeButtonWidth, 32))
+			popHeadingFont()
+			if manualClicked then
+				isAutoBan[0] = false
+				saveSettings()
+			end
+			imgui.PopStyleColor(3)
+			if imgui.IsItemHovered() then
+				imgui.BeginTooltip()
+				imgui.Text(u8'Ручной режим бана')
+				imgui.Text(u8'После окончания обратного отсчета')
+				imgui.Text(u8'требуется нажатие кнопки или клавиши')
+				imgui.EndTooltip()
+			end
+		else
+			if SecondaryButton(u8'Manual Ban (Рекамендуется)', imgui.ImVec2(banModeButtonWidth, 32)) then
+				isAutoBan[0] = false
+				saveSettings()
+			end
+			if imgui.IsItemHovered() then
+				imgui.BeginTooltip()
+				imgui.Text(u8'Ручной режим бана')
+				imgui.Text(u8'После окончания обратного отсчета')
+				imgui.Text(u8'требуется нажатие кнопки или клавиши')
+				imgui.EndTooltip()
+			end
 		end
-	end
-
-    imgui.EndChild()
-
-    imgui.Dummy(imgui.ImVec2(0, 8))
-    imgui.Separator()
-    imgui.Dummy(imgui.ImVec2(0, 6))
-    local bottomBtnWidth = imgui.GetContentRegionAvail().x
-    local bottomBtnHeight = 32.0
-    if SecondaryButton(u8'Логер банов', imgui.ImVec2(bottomBtnWidth, bottomBtnHeight)) then
-		WinState[0] = false
-		BanLoggerState[0] = true
-	end
-	if updateAvailableVersion then
+		
+		imgui.Dummy(imgui.ImVec2(0, 8))
+		imgui.Separator()
 		imgui.Dummy(imgui.ImVec2(0, 6))
-		local label = string.format(u8'Обновление v%s', updateAvailableVersion)
-		if SecondaryButton(label, imgui.ImVec2(bottomBtnWidth, bottomBtnHeight)) then
-			UpdateWindowState[0] = true
+
+		imgui.AlignTextToFramePadding()
+		HeadingText(u8'Задержка обратного отсчета:')
+		imgui.SameLine()
+		imgui.PushItemWidth(120)
+
+		local prevValueBeforeCheck = banCountdownMs[0]
+		local countdownChanged = imgui.InputInt(u8'##ban_countdown_ms', banCountdownMs)
+		if countdownChanged then
+			if banCountdownMs[0] > 60000 then banCountdownMs[0] = 60000 end
+
+			if banCountdownMs[0] < 3000 then
+				if prevValueBeforeCheck >= 3000 or not lowDelayConfirmed then
+					lowDelayWarningState[0] = true
+					lowDelayContinueEnabled = false
+					lowDelayContinueEnableTime = os.clock() + 5.0
+					lowDelayPrevValue = prevValueBeforeCheck
+				else
+					lowDelayPrevValue = banCountdownMs[0]
+					saveSettings()
+				end
+			else
+				lowDelayPrevValue = banCountdownMs[0]
+				lowDelayConfirmed = false
+				saveSettings()
+			end
 		end
-	end
+		imgui.PopItemWidth()
+
+		if imgui.IsItemHovered() then
+			local itemMin = imgui.GetItemRectMin()
+			local itemMax = imgui.GetItemRectMax()
+			local mousePos = imgui.GetMousePos()
+			local itemWidth = itemMax.x - itemMin.x
+			local mouseOffsetX = mousePos.x - itemMin.x
+			if mouseOffsetX < itemWidth * 0.7 then
+				imgui.BeginTooltip()
+				imgui.Text(u8'Время обратного отсчета перед возможностью')
+				imgui.Text(u8'выполнить бан (1 секунда = 1000мс)')
+				imgui.EndTooltip()
+			end
+		end
+
+		imgui.EndChild()
+
+		imgui.Dummy(imgui.ImVec2(0, 8))
+		imgui.Separator()
+		imgui.Dummy(imgui.ImVec2(0, 6))
+		local bottomBtnWidth = imgui.GetContentRegionAvail().x
+		local bottomBtnHeight = 32.0
+		if SecondaryButton(u8'Логер банов', imgui.ImVec2(bottomBtnWidth, bottomBtnHeight)) then
+			WinState[0] = false
+			BanLoggerState[0] = true
+		end
+		if updateAvailableVersion then
+			imgui.Dummy(imgui.ImVec2(0, 6))
+			local label = string.format(u8'Обновление v%s', updateAvailableVersion)
+			if SecondaryButton(label, imgui.ImVec2(bottomBtnWidth, bottomBtnHeight)) then
+				UpdateWindowState[0] = true
+			end
+		end
 
 		imgui.EndChild()
 		imgui.SameLine()
@@ -2445,184 +2382,154 @@ HeadingText(u8'Режим бана:')
 		end
 
 		imgui.PopStyleColor(6)
-	    end
+	end
 
-		if not showWelcomeAnimation then
-
-			local currentTime = os.clock()
-			local elapsed = currentTime - welcomeAnimationStartTime
-			local fadeInDuration = 0.5
-			local showDuration = 6.0
-			local fadeOutDuration = 0.5
-			local totalDuration = fadeInDuration + showDuration + fadeOutDuration
-			
-			local alpha = 1.0
-			if elapsed < fadeInDuration then
-
-				alpha = elapsed / fadeInDuration
-			elseif elapsed < fadeInDuration + showDuration then
-
-				alpha = 1.0
-			elseif elapsed < totalDuration then
-
-				alpha = 1.0 - ((elapsed - fadeInDuration - showDuration) / fadeOutDuration)
-			else
-
-				alpha = 0.0
-				showWelcomeAnimation = true
-				welcomeAnimationJustCompleted = true
-				saveSettings()
-				welcomeAnimationStartTime = 0
-			end
-			
-			if alpha > 0 then
-
-				local drawList = imgui.GetWindowDrawList()
-				local windowPos = imgui.GetWindowPos()
-				local windowSize = imgui.GetWindowSize()
-
-				local style = imgui.GetStyle()
-				local windowBg = style.Colors[imgui.Col.WindowBg]
-
-				local bgColor = imgui.GetColorU32Vec4(imgui.ImVec4(
-					windowBg.x, 
-					windowBg.y, 
-					windowBg.z, 
-					windowBg.w * alpha
-				))
-				drawList:AddRectFilled(
-					windowPos, 
-					imgui.ImVec2(windowPos.x + windowSize.x, windowPos.y + windowSize.y),
-					bgColor
-				)
-
-				local text1 = u8'Привет, я Bbot!'
-				local text2 = u8'Меня создали для помощи администрации, давай побаним ботов?'
-
-				local fontLarge = fonts.welcomeLarge or fonts.default
-				local fontMedium = fonts.welcomeMedium or fonts.default
-				local fontLargeSize = fontLarge and fontLarge.FontSize or imgui.GetFontSize()
-				local fontMediumSize = fontMedium and fontMedium.FontSize or imgui.GetFontSize()
-
-				if fontLarge then imgui.PushFont(fontLarge) end
-				local text1Size = imgui.CalcTextSize(text1)
-				if fontLarge then imgui.PopFont() end
-
-				if fontMedium then imgui.PushFont(fontMedium) end
-				local text2Size = imgui.CalcTextSize(text2)
-				if fontMedium then imgui.PopFont() end
-
-				local totalHeight = text1Size.y + text2Size.y + 30
-
-				local centerX = windowPos.x + windowSize.x / 2
-				local centerY = windowPos.y + windowSize.y / 2
-				local text1Y = centerY - totalHeight / 2
-				local text1X = centerX - text1Size.x / 2
-
-				local textAlpha = alpha
-
-				local textColor = imgui.GetColorU32Vec4(imgui.ImVec4(1.0, 1.0, 1.0, textAlpha))
-
-
-
-				if fontLarge then imgui.PushFont(fontLarge) end
-				drawList:AddText(imgui.ImVec2(text1X, text1Y), textColor, text1)
-				if fontLarge then imgui.PopFont() end
-				local text2Y = text1Y + text1Size.y + 30
-				local text2X = centerX - text2Size.x / 2
-				if fontMedium then imgui.PushFont(fontMedium) end
-				drawList:AddText(imgui.ImVec2(text2X, text2Y), textColor, text2)
-				if fontMedium then imgui.PopFont() end
-			end
-		end
-
-		if showWelcomeAnimation and returnAnimationStartTime > 0 and not returnAnimationShown then
-
-			local currentTime = os.clock()
-			local elapsed = currentTime - returnAnimationStartTime
-			local fadeInDuration = 0.5
-			local showDuration = 1.5
-			local fadeOutDuration = 0.5
-			local totalDuration = fadeInDuration + showDuration + fadeOutDuration
-			
-			local alpha = 1.0
-			if elapsed < fadeInDuration then
-
-				alpha = elapsed / fadeInDuration
-			elseif elapsed < fadeInDuration + showDuration then
-
-				alpha = 1.0
-			elseif elapsed < totalDuration then
-
-				alpha = 1.0 - ((elapsed - fadeInDuration - showDuration) / fadeOutDuration)
-			else
-
-				alpha = 0.0
-				returnAnimationShown = true
-				returnAnimationStartTime = 0
-			end
-			
-			if alpha > 0 then
-
-				local drawList = imgui.GetWindowDrawList()
-				local windowPos = imgui.GetWindowPos()
-				local windowSize = imgui.GetWindowSize()
-
-				local style = imgui.GetStyle()
-				local windowBg = style.Colors[imgui.Col.WindowBg]
-
-				local bgColor = imgui.GetColorU32Vec4(imgui.ImVec4(
-					windowBg.x, 
-					windowBg.y, 
-					windowBg.z, 
-					windowBg.w * alpha
-				))
-				drawList:AddRectFilled(
-					windowPos, 
-					imgui.ImVec2(windowPos.x + windowSize.x, windowPos.y + windowSize.y),
-					bgColor
-				)
-
-				local text1 = u8'С возвращением'
-				local text2 = u8'Побаним ботов вместе!'
-
-				local fontLarge = fonts.welcomeLarge or fonts.default
-				local fontMedium = fonts.welcomeMedium or fonts.default
-				local fontLargeSize = fontLarge and fontLarge.FontSize or imgui.GetFontSize()
-				local fontMediumSize = fontMedium and fontMedium.FontSize or imgui.GetFontSize()
-
-				if fontLarge then imgui.PushFont(fontLarge) end
-				local text1Size = imgui.CalcTextSize(text1)
-				if fontLarge then imgui.PopFont() end
-
-				if fontMedium then imgui.PushFont(fontMedium) end
-				local text2Size = imgui.CalcTextSize(text2)
-				if fontMedium then imgui.PopFont() end
-
-				local totalHeight = text1Size.y + text2Size.y + 30
-
-				local centerX = windowPos.x + windowSize.x / 2
-				local centerY = windowPos.y + windowSize.y / 2
-				local text1Y = centerY - totalHeight / 2
-				local text1X = centerX - text1Size.x / 2
-
-				local textAlpha = alpha
-
-				local textColor = imgui.GetColorU32Vec4(imgui.ImVec4(1.0, 1.0, 1.0, textAlpha))
-				
-				if fontLarge then imgui.PushFont(fontLarge) end
-				drawList:AddText(imgui.ImVec2(text1X, text1Y), textColor, text1)
-				if fontLarge then imgui.PopFont() end
-				local text2Y = text1Y + text1Size.y + 30
-				local text2X = centerX - text2Size.x / 2
-				if fontMedium then imgui.PushFont(fontMedium) end
-				drawList:AddText(imgui.ImVec2(text2X, text2Y), textColor, text2)
-				if fontMedium then imgui.PopFont() end
-			end
+	if not showWelcomeAnimation then
+		local currentTime = os.clock()
+		local elapsed = currentTime - welcomeAnimationStartTime
+		local fadeInDuration = 0.5
+		local showDuration = 6.0
+		local fadeOutDuration = 0.5
+		local totalDuration = fadeInDuration + showDuration + fadeOutDuration
+		
+		local alpha = 1.0
+		if elapsed < fadeInDuration then
+			alpha = elapsed / fadeInDuration
+		elseif elapsed < fadeInDuration + showDuration then
+			alpha = 1.0
+		elseif elapsed < totalDuration then
+			alpha = 1.0 - ((elapsed - fadeInDuration - showDuration) / fadeOutDuration)
+		else
+			alpha = 0.0
+			showWelcomeAnimation = true
+			welcomeAnimationJustCompleted = true
+			saveSettings()
+			welcomeAnimationStartTime = 0
 		end
 		
-		popBodyFont()
-		imgui.End()
+		if alpha > 0 then
+			local drawList = imgui.GetWindowDrawList()
+			local windowPos = imgui.GetWindowPos()
+			local windowSize = imgui.GetWindowSize()
+
+			local style = imgui.GetStyle()
+			local windowBg = style.Colors[imgui.Col.WindowBg]
+
+			local bgColor = imgui.GetColorU32Vec4(imgui.ImVec4(
+				windowBg.x, windowBg.y, windowBg.z, windowBg.w * alpha
+			))
+			drawList:AddRectFilled(
+				windowPos, 
+				imgui.ImVec2(windowPos.x + windowSize.x, windowPos.y + windowSize.y),
+				bgColor
+			)
+
+			local text1 = u8'Привет, я Bbot!'
+			local text2 = u8'Меня создали для помощи администрации, давай побаним ботов?'
+
+			local fontLarge = fonts.welcomeLarge or fonts.default
+			local fontMedium = fonts.welcomeMedium or fonts.default
+
+			if fontLarge then imgui.PushFont(fontLarge) end
+			local text1Size = imgui.CalcTextSize(text1)
+			if fontLarge then imgui.PopFont() end
+
+			if fontMedium then imgui.PushFont(fontMedium) end
+			local text2Size = imgui.CalcTextSize(text2)
+			if fontMedium then imgui.PopFont() end
+
+			local totalHeight = text1Size.y + text2Size.y + 30
+			local centerX = windowPos.x + windowSize.x / 2
+			local centerY = windowPos.y + windowSize.y / 2
+			local text1Y = centerY - totalHeight / 2
+			local text1X = centerX - text1Size.x / 2
+
+			local textColor = imgui.GetColorU32Vec4(imgui.ImVec4(1.0, 1.0, 1.0, alpha))
+
+			if fontLarge then imgui.PushFont(fontLarge) end
+			drawList:AddText(imgui.ImVec2(text1X, text1Y), textColor, text1)
+			if fontLarge then imgui.PopFont() end
+			local text2Y = text1Y + text1Size.y + 30
+			local text2X = centerX - text2Size.x / 2
+			if fontMedium then imgui.PushFont(fontMedium) end
+			drawList:AddText(imgui.ImVec2(text2X, text2Y), textColor, text2)
+			if fontMedium then imgui.PopFont() end
+		end
+	end
+
+	if showWelcomeAnimation and returnAnimationStartTime > 0 and not returnAnimationShown then
+		local currentTime = os.clock()
+		local elapsed = currentTime - returnAnimationStartTime
+		local fadeInDuration = 0.5
+		local showDuration = 1.5
+		local fadeOutDuration = 0.5
+		local totalDuration = fadeInDuration + showDuration + fadeOutDuration
+		
+		local alpha = 1.0
+		if elapsed < fadeInDuration then
+			alpha = elapsed / fadeInDuration
+		elseif elapsed < fadeInDuration + showDuration then
+			alpha = 1.0
+		elseif elapsed < totalDuration then
+			alpha = 1.0 - ((elapsed - fadeInDuration - showDuration) / fadeOutDuration)
+		else
+			alpha = 0.0
+			returnAnimationShown = true
+			returnAnimationStartTime = 0
+		end
+		
+		if alpha > 0 then
+			local drawList = imgui.GetWindowDrawList()
+			local windowPos = imgui.GetWindowPos()
+			local windowSize = imgui.GetWindowSize()
+
+			local style = imgui.GetStyle()
+			local windowBg = style.Colors[imgui.Col.WindowBg]
+
+			local bgColor = imgui.GetColorU32Vec4(imgui.ImVec4(
+				windowBg.x, windowBg.y, windowBg.z, windowBg.w * alpha
+			))
+			drawList:AddRectFilled(
+				windowPos, 
+				imgui.ImVec2(windowPos.x + windowSize.x, windowPos.y + windowSize.y),
+				bgColor
+			)
+
+			local text1 = u8'С возвращением'
+			local text2 = u8'Побаним ботов вместе!'
+
+			local fontLarge = fonts.welcomeLarge or fonts.default
+			local fontMedium = fonts.welcomeMedium or fonts.default
+
+			if fontLarge then imgui.PushFont(fontLarge) end
+			local text1Size = imgui.CalcTextSize(text1)
+			if fontLarge then imgui.PopFont() end
+
+			if fontMedium then imgui.PushFont(fontMedium) end
+			local text2Size = imgui.CalcTextSize(text2)
+			if fontMedium then imgui.PopFont() end
+
+			local totalHeight = text1Size.y + text2Size.y + 30
+			local centerX = windowPos.x + windowSize.x / 2
+			local centerY = windowPos.y + windowSize.y / 2
+			local text1Y = centerY - totalHeight / 2
+			local text1X = centerX - text1Size.x / 2
+
+			local textColor = imgui.GetColorU32Vec4(imgui.ImVec4(1.0, 1.0, 1.0, alpha))
+			
+			if fontLarge then imgui.PushFont(fontLarge) end
+			drawList:AddText(imgui.ImVec2(text1X, text1Y), textColor, text1)
+			if fontLarge then imgui.PopFont() end
+			local text2Y = text1Y + text1Size.y + 30
+			local text2X = centerX - text2Size.x / 2
+			if fontMedium then imgui.PushFont(fontMedium) end
+			drawList:AddText(imgui.ImVec2(text2X, text2Y), textColor, text2)
+			if fontMedium then imgui.PopFont() end
+		end
+	end
+	
+	popBodyFont()
+	imgui.End()
 end)
 
 
@@ -2682,7 +2589,6 @@ imgui.OnFrame(function() return DecisionOpen[0] end, function(player)
 		local isCountdownActive = remainingTime > 0
 
 		if not isCountdownActive and isAutoBan[0] and pendingReport and not autoBanTriggered then
-
 			autoBanTriggered = true
 			performBan()
 		end
@@ -2690,7 +2596,6 @@ imgui.OnFrame(function() return DecisionOpen[0] end, function(player)
 		local banKeyName = vkeys.id_to_name(banKey[0]) or string.format("0x%02X", banKey[0])
 		local banButtonLabel = ""
 		if isCountdownActive then
-
 			banButtonLabel = u8(string.format('Забанить (%.3fс)', remainingTime))
 		else
 			banButtonLabel = u8('Забанить (' .. banKeyName .. ')')
@@ -2698,7 +2603,6 @@ imgui.OnFrame(function() return DecisionOpen[0] end, function(player)
 
 		local banButtonClicked = false
 		if isCountdownActive then
-
 			imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.40, 0.40, 0.42, 0.60))
 			imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImVec4(0.40, 0.40, 0.42, 0.60))
 			imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImVec4(0.40, 0.40, 0.42, 0.60))
@@ -2707,7 +2611,6 @@ imgui.OnFrame(function() return DecisionOpen[0] end, function(player)
 			popHeadingFont()
 			imgui.PopStyleColor(3)
 		else
-
 			local baseColor = imgui.ImVec4(0.85, 0.20, 0.22, 0.90)
 			local hoverColor = imgui.ImVec4(0.95, 0.28, 0.30, 0.95)
 			local activeColor = imgui.ImVec4(1.00, 0.35, 0.38, 1.00)
@@ -2721,7 +2624,6 @@ imgui.OnFrame(function() return DecisionOpen[0] end, function(player)
 		end
 		
 		if banButtonClicked and not isCountdownActive then
-
 			performBan()
 		end
 		imgui.SameLine()
@@ -2730,7 +2632,6 @@ imgui.OnFrame(function() return DecisionOpen[0] end, function(player)
 			sampSendChat("/reoff")
 			if pendingReport and pendingReport.name then
 				skippedPlayers[pendingReport.name] = true
-				-- Обновление статистики
 				stats.skippedCount = stats.skippedCount + 1
 			end
 			DecisionOpen[0] = false
@@ -2749,7 +2650,6 @@ imgui.OnFrame(function() return DecisionOpen[0] end, function(player)
 	imgui.End()
 end)
 
--- Объединенное окно статистики и быстрой телепортации
 imgui.OnFrame(function() return isRunning end, function()
 	if not themeApplied then
 		applyUiTheme()
@@ -2766,7 +2666,6 @@ imgui.OnFrame(function() return isRunning end, function()
 	local currentWorkTime = getCurrentWorkTime()
 	local avgSpeed = getAverageDetectionSpeed()
 	
-	-- Текущее время и дата (отцентрованы)
 	local currentTime = os.date("%H:%M:%S")
 	local currentDate = formatDateRussian()
 	local availWidth = imgui.GetContentRegionAvail().x
@@ -2785,7 +2684,6 @@ imgui.OnFrame(function() return isRunning end, function()
 	imgui.Separator()
 	imgui.Dummy(imgui.ImVec2(0, 2))
 	
-	-- Статистика в две колонки (компактно)
 	local labelWidth = 120.0
 	local valueColor = imgui.ImVec4(0.50, 0.28, 0.88, 1.00)
 	
@@ -2825,7 +2723,6 @@ imgui.OnFrame(function() return isRunning end, function()
 	imgui.Separator()
 	imgui.Dummy(imgui.ImVec2(0, 2))
 	
-	-- Быстрый телепорт (компактно)
 	local teleportHeader = u8'Телепорт'
 	local teleportAvailWidth = imgui.GetContentRegionAvail().x
 	local teleportHeaderWidth = imgui.CalcTextSize(teleportHeader).x
@@ -2864,19 +2761,16 @@ imgui.OnFrame(function() return isRunning end, function()
 	popBodyFont()
 	imgui.End()
 end).HideCursor = function()
-	-- Не скрывать курсор, если открыты другие окна
 	return not ((WinState and WinState[0]) or (DecisionOpen and DecisionOpen[0]) or (BanLoggerState and BanLoggerState[0]))
 end
 
 imgui.OnFrame(function() return lowDelayWarningState[0] end, function()
-
 	local screenWidth, screenHeight = getScreenResolution()
 	local windowWidth = 500.0
 	local windowHeight = 280.0
 
 	imgui.SetNextWindowPos(imgui.ImVec2(screenWidth / 2, screenHeight / 2), imgui.Cond.Always, imgui.ImVec2(0.5, 0.5))
 	imgui.SetNextWindowSize(imgui.ImVec2(windowWidth, windowHeight), imgui.Cond.Always)
-
 
 	local windowFlags = imgui.WindowFlags.NoResize + imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoMove
 	
@@ -2906,7 +2800,6 @@ imgui.OnFrame(function() return lowDelayWarningState[0] end, function()
 	local buttonHeight = 35.0
 
 	if SecondaryButton(u8'Отказаться', imgui.ImVec2(buttonWidth, buttonHeight)) then
-
 		if lowDelayPrevValue >= 3000 then
 			banCountdownMs[0] = lowDelayPrevValue
 		else
@@ -2919,7 +2812,6 @@ imgui.OnFrame(function() return lowDelayWarningState[0] end, function()
 	imgui.SameLine()
 
 	if not lowDelayContinueEnabled then
-
 		local remainingTime = lowDelayContinueEnableTime - currentTime
 		if remainingTime < 0 then remainingTime = 0 end
 		local remainingSeconds = math.ceil(remainingTime)
@@ -2933,12 +2825,10 @@ imgui.OnFrame(function() return lowDelayWarningState[0] end, function()
 		popHeadingFont()
 		imgui.PopStyleColor(3)
 	else
-
 		pushHeadingFont()
 		local continueClicked = imgui.Button(u8'Продолжить', imgui.ImVec2(buttonWidth, buttonHeight))
 		popHeadingFont()
 		if continueClicked then
-
 			lowDelayConfirmed = true
 			lowDelayWarningState[0] = false
 			saveSettings()
@@ -2951,21 +2841,17 @@ end)
 
 local prevWinState = false
 imgui.OnFrame(function() return true end, function()
-
 	if prevBanLoggerState and not BanLoggerState[0] then
-
 		WinState[0] = true
 	end
 
 	if prevWinState and not WinState[0] then
-
 		welcomeAnimationJustCompleted = false
 	end
 
 	prevBanLoggerState = BanLoggerState[0]
 	prevWinState = WinState[0]
 end).HideCursor = function()
-
 	return true
 end
 
@@ -2982,7 +2868,6 @@ imgui.OnFrame(function() return BanLoggerState[0] end, function(player)
 	local bans = loadBans()
 	local groupedBans = groupBansByDate(bans)
 	
-	-- Поиск по нику (по центру, без надписи)
 	imgui.Dummy(imgui.ImVec2(0, 4))
 	local searchWidth = 300.0
 	local availW = imgui.GetContentRegionAvail().x
@@ -2991,7 +2876,6 @@ imgui.OnFrame(function() return BanLoggerState[0] end, function(player)
 	imgui.SetCursorPosX(baseX + offsetX)
 	imgui.PushItemWidth(searchWidth)
 	imgui.InputText('##ban_search', banSearchBuf, ffi.sizeof(banSearchBuf))
-	-- Placeholder внутри поля, когда пусто
 	local _searchStrForPlaceholder = ffi.string(banSearchBuf)
 	if not _searchStrForPlaceholder or _searchStrForPlaceholder == '' then
 		local style = imgui.GetStyle()
@@ -3010,7 +2894,6 @@ imgui.OnFrame(function() return BanLoggerState[0] end, function(player)
 	if #groupedBans == 0 then
 		imgui.Text(u8'Нет записей о банах')
 	else
-
 		imgui.BeginChild('##ban_list', imgui.ImVec2(0, 0), false, imgui.WindowFlags.NoScrollbar)
 		local currentTime = os.clock()
 		local copyAnimationDuration = 1.0
@@ -3024,7 +2907,6 @@ imgui.OnFrame(function() return BanLoggerState[0] end, function(player)
 			local banWord = getBanWord(count)
 			local headerLabel = string.format("%s (%d %s)", formattedDate, count, banWord)
 
-			-- Проверяем, есть ли совпадения в группе
 			local groupHasMatch = false
 			if hasFilter then
 				for _, ban in ipairs(dateBans) do
@@ -3038,7 +2920,6 @@ imgui.OnFrame(function() return BanLoggerState[0] end, function(player)
 				groupHasMatch = true
 			end
 
-			-- Если нет совпадений: показать затемнённый некликабельный заголовок, иначе обычный блок
 			if hasFilter and not groupHasMatch then
 				imgui.PushStyleColor(imgui.Col.Text, imgui.ImVec4(0.50, 0.50, 0.52, 0.58))
 				imgui.Text(u8(headerLabel))
@@ -3074,9 +2955,7 @@ imgui.OnFrame(function() return BanLoggerState[0] end, function(player)
 					end
 					
 					imgui.SameLine(200)
-
 					imgui.Text(u8(ban.timestamp))
-					
 					imgui.SameLine(400)
 
 					if ban.timeDiff ~= "" then
@@ -3103,17 +2982,14 @@ imgui.OnFrame(function() return BanLoggerState[0] end, function(player)
 				local buttonText = u8'Копировать список'
 				local copyElapsed = copyButtonAnimationTime[date] and (currentTime - copyButtonAnimationTime[date]) or copyAnimationDuration
 				if copyElapsed < copyAnimationDuration then
-
 					buttonText = u8'Скопировано!'
 					local animProgress = copyElapsed / copyAnimationDuration
-
 					local greenIntensity = math.sin(animProgress * math.pi)
 					local baseColor = imgui.ImVec4(0.22, 0.22, 0.26, 0.80)
-					local greenTint = imgui.ImVec4(0.0, 0.8, 0.3, 0.0)
 					local animColor = imgui.ImVec4(
-						baseColor.x + greenTint.x * greenIntensity,
-						baseColor.y + greenTint.y * greenIntensity,
-						baseColor.z + greenTint.z * greenIntensity,
+						baseColor.x,
+						baseColor.y + 0.8 * greenIntensity,
+						baseColor.z + 0.3 * greenIntensity,
 						baseColor.w
 					)
 					imgui.PushStyleColor(imgui.Col.Button, animColor)
@@ -3128,9 +3004,7 @@ imgui.OnFrame(function() return BanLoggerState[0] end, function(player)
 					popHeadingFont()
 					imgui.PopStyleColor(3)
 				else
-
 					if SecondaryButton(buttonText, imgui.ImVec2(buttonWidth, 32)) then
-
 						local nickList = {}
 						if banLoggerUseCommand[0] then
 							local commandTemplate = ffi.string(banLoggerCommand) or u8'/ban {BotName} 30 чит'
@@ -3145,10 +3019,8 @@ imgui.OnFrame(function() return BanLoggerState[0] end, function(player)
 						end
 						local textToCopy = table.concat(nickList, '\n')
 						if copyToClipboard(textToCopy) then
-
 							copyButtonAnimationTime[date] = currentTime
 							copyButtonClickedDate[date] = true
-
 							addNotification(u8'Список скопирован')
 						end
 					end
@@ -3219,22 +3091,17 @@ imgui.OnFrame(function() return reminderStartTime > 0 end, function()
 	
 	local alpha = 0.0
 	if elapsed < fadeInDuration then
-
 		alpha = elapsed / fadeInDuration
 	elseif elapsed < fadeInDuration + showDuration then
-
 		alpha = 1.0
 	elseif elapsed < totalDuration then
-
 		alpha = 1.0 - ((elapsed - fadeInDuration - showDuration) / fadeOutDuration)
 	else
-
 		alpha = 0.0
 		reminderStartTime = 0
 	end
 	
 	if alpha > 0 then
-
 		local screenWidth, screenHeight = getScreenResolution()
 
 		imgui.SetNextWindowPos(imgui.ImVec2(screenWidth / 2, screenHeight / 2), imgui.Cond.Always, imgui.ImVec2(0.5, 0.5))
@@ -3270,25 +3137,19 @@ imgui.OnFrame(function() return reminderStartTime > 0 end, function()
 		local text1X = centerX - totalTextWidth / 2
 
 		local darkPurpleColor = imgui.GetColorU32Vec4(imgui.ImVec4(0.4, 0.2, 0.6, alpha))
-
 		local lightPurpleColor = imgui.GetColorU32Vec4(imgui.ImVec4(0.8, 0.6, 1.0, alpha))
-
 		local shadowColor = imgui.GetColorU32Vec4(imgui.ImVec4(0.0, 0.0, 0.0, alpha * 0.8))
-
 		local shadowOffset = 2
 		
 		imgui.SetWindowFontScale(fontSize)
-
 		drawList:AddText(imgui.ImVec2(text1X + shadowOffset, text1Y + shadowOffset), shadowColor, textPart1)
 		drawList:AddText(imgui.ImVec2(text1X, text1Y), darkPurpleColor, textPart1)
 
 		local text2X = text1X + text1Size.x
-
 		drawList:AddText(imgui.ImVec2(text2X + shadowOffset, text1Y + shadowOffset), shadowColor, textPart2)
 		drawList:AddText(imgui.ImVec2(text2X, text1Y), lightPurpleColor, textPart2)
 
 		local text3X = text2X + text2Size.x
-
 		drawList:AddText(imgui.ImVec2(text3X + shadowOffset, text1Y + shadowOffset), shadowColor, textPart3)
 		drawList:AddText(imgui.ImVec2(text3X, text1Y), darkPurpleColor, textPart3)
 		
@@ -3302,7 +3163,6 @@ end
 
 local NotificationWindowState = new.bool(true)
 imgui.OnFrame(function() return #notifications > 0 end, function()
-
 	local screenWidth, screenHeight = getScreenResolution()
 
 	imgui.SetNextWindowPos(imgui.ImVec2(0, 0), imgui.Cond.Always, imgui.ImVec2(0, 0))
@@ -3331,7 +3191,6 @@ imgui.OnFrame(function() return #notifications > 0 end, function()
 		if elapsed < totalDuration then
 			table.insert(activeNotifications, notif)
 		else
-
 			table.remove(notifications, i)
 		end
 	end
@@ -3342,66 +3201,49 @@ imgui.OnFrame(function() return #notifications > 0 end, function()
 		return 
 	end
 	
-	local windowPos = imgui.GetWindowPos()
-
-
-	
 	for idx, notif in ipairs(activeNotifications) do
 		local elapsed = currentTime - notif.startTime
 		local totalDuration = notificationFadeIn + notificationDuration + notificationFadeOut
 
 		local alpha = 1.0
 		if elapsed < notificationFadeIn then
-
 			alpha = elapsed / notificationFadeIn
 		elseif elapsed < notificationFadeIn + notificationDuration then
-
 			alpha = 1.0
 		else
-
 			local fadeOutStart = notificationFadeIn + notificationDuration
 			alpha = 1.0 - ((elapsed - fadeOutStart) / notificationFadeOut)
 		end
 
-
-		-- newest notifications occupy bottom slots
 		local positionFromBottom = idx
-
 		local baseY = screenHeight - bottomMargin - notificationLineSpacing * positionFromBottom
 		local notificationX = (screenWidth - notificationWidth) / 2.0
 		
 		local slideDistance = 80.0
 		local fadeOutDistance = 30.0
-		
 		local notificationY = baseY
 
-		-- Calculate upward shift from newer notifications appearing
 		local upwardShift = 0.0
 		for newerIdx = 1, idx - 1 do
 			local newerNotif = activeNotifications[newerIdx]
 			if newerNotif then
 				local newerElapsed = currentTime - newerNotif.startTime
 				if newerElapsed < notificationFadeIn then
-					-- Newer notification is appearing, shift this one up proportionally
 					local newerFadeProgress = newerElapsed / notificationFadeIn
 					upwardShift = upwardShift + (notificationLineSpacing * newerFadeProgress)
 				else
-					-- Newer notification has finished appearing, this one should be fully shifted
 					upwardShift = upwardShift + notificationLineSpacing
 				end
 			end
 		end
 
 		if elapsed < notificationFadeIn then
-
 			local fadeProgress = elapsed / notificationFadeIn
 			local offsetBelow = slideDistance * (1.0 - fadeProgress)
 			notificationY = baseY - upwardShift + offsetBelow
-
 		elseif elapsed < notificationFadeIn + notificationDuration then
 			notificationY = baseY - upwardShift
 		else
-
 			local fadeOutStart = notificationFadeIn + notificationDuration
 			local fadeOutProgress = (elapsed - fadeOutStart) / notificationFadeOut
 			local offsetUp = fadeOutDistance * fadeOutProgress
@@ -3433,7 +3275,6 @@ end).HideCursor = function()
 end
 
 function main()
-    -- подождать полной инициализации SAMP, иначе вызовы samp* падают (0B23)
     while not isSampLoaded() do wait(200) end
     while not isSampAvailable() do wait(200) end
 	loadSettings()
@@ -3443,7 +3284,6 @@ function main()
 	checkForUpdates()
 
 	if type(sampAddChatMessage) == 'function' then
-
 		local playerName = "друг"
 
 		if PLAYER_PED and doesCharExist(PLAYER_PED) then
@@ -3455,7 +3295,6 @@ function main()
 				end
 			end
 		end
-
 
 		local colorBotTag = '{AA77FF}'
 		local colorNormal = '{CCCCCC}'
@@ -3489,7 +3328,12 @@ function main()
 			colorBotTag, colorNormal, colorReset)
 		local motivationMsg = u8:encode(motivationText)
 		sampAddChatMessage(u8:decode(motivationMsg, 'CP1251'), -1)
+
+		-- Подсказка по биндам
+		local menuKN = vkeys.id_to_name(menuKey[0]) or string.format("0x%02X", menuKey[0])
+		local startKN = vkeys.id_to_name(startKey[0]) or string.format("0x%02X", startKey[0])
 	end
+
 	sampRegisterChatCommand('bbot', function() WinState[0] = not WinState[0] end)
 	sampRegisterChatCommand('banbind', function(param)
 		waitingForBanKey = true
@@ -3514,7 +3358,6 @@ function main()
 
 sampev.onServerMessage = function(color, message)
 	captureWorldFromMessage(message)
-	-- Скрываем сообщение о /setvw из чата, но все равно парсим world ID
 	if type(message) == 'string' then
 		local lower = message:lower()
 		if lower:match('usage:%s*/setvw') or lower:match('current%s+world:') then
@@ -3524,7 +3367,6 @@ sampev.onServerMessage = function(color, message)
 end
 
 	sampev.onTogglePlayerSpectating = function(playerid, bool)
-
 		local prevState = wasSpectating
 		wasSpectating = bool
 
@@ -3533,7 +3375,6 @@ end
 
 		if prevState and not bool and timeSinceRe >= 0.5 and isRunning and DecisionOpen[0] then
 			wasKickedFromSpectate = true
-
 			sampSendChat("/reoff")
 			DecisionOpen[0] = false
 			isProcessing = false
@@ -3541,6 +3382,7 @@ end
 		end
 	end
 
+	-- ===== ПОТОК ОБРАБОТКИ ГОРЯЧИХ КЛАВИШ =====
 	lua_thread.create(function()
 		while true do
 			wait(0)
@@ -3559,59 +3401,80 @@ end
 						waitingForSkipKey = false
 						saveSettings()
 					end
-			elseif waitingForActivationKey then
-				local key = getPressedKey()
-				if key then
-					activationKey[0] = key
-					waitingForActivationKey = false
-					saveSettings()
-				end
+				elseif waitingForMenuKey then
+					-- Ждём нажатия клавиши для бинда меню
+					local key = getPressedKey()
+					if key then
+						menuKey[0] = key
+						waitingForMenuKey = false
+						saveSettings()
+						addNotification(u8'Клавиша меню установлена')
+					end
+				elseif waitingForStartKey then
+					-- Ждём нажатия клавиши для бинда старта/стопа
+					local key = getPressedKey()
+					if key then
+						startKey[0] = key
+						waitingForStartKey = false
+						saveSettings()
+						addNotification(u8'Клавиша старт/стоп установлена')
+					end
+				elseif waitingForActivationKey then
+					local key = getPressedKey()
+					if key then
+						activationKey[0] = key
+						waitingForActivationKey = false
+						saveSettings()
+					end
 				elseif wasKeyPressed(banKey[0]) and DecisionOpen[0] and pendingReport and not sampIsChatInputActive() then
-
 					local currentTime = os.clock()
 					local elapsedTime = currentTime - banCountdownStartTime
 					local countdownDuration = banCountdownMs[0] / 1000.0
 					local remainingTime = countdownDuration - elapsedTime
-					if remainingTime > 0 then
-
-					else
-
+					if remainingTime <= 0 then
 						if not isAutoBan[0] then
 							performBan()
 						end
 					end
 				elseif wasKeyPressed(skipKey[0]) and DecisionOpen[0] and pendingReport and not sampIsChatInputActive() then
-
 					sampSendChat("/reoff")
 					if pendingReport and pendingReport.name then
 						skippedPlayers[pendingReport.name] = true
-						-- Обновление статистики
 						stats.skippedCount = stats.skippedCount + 1
 					end
 					DecisionOpen[0] = false
 					pendingReport = nil
 					isProcessing = false
 					lastDecisionCloseTime = os.clock() * 1000
-		elseif backgroundMode[0] and not isRunning and backgroundPending and wasKeyPressed(activationKey[0]) and not sampIsChatInputActive() then
-
-			-- Активируем слежку по сохраненному кандидату
-			local p = backgroundPending
-			backgroundPending = nil
-			local nowMs = os.clock() * 1000
-			local reTime = nil
-			if (nowMs - lastCommandTime) >= commandCooldown and (nowMs - lastDecisionCloseTime) >= 500 then
-				sampSendChat(string.format('/re %s', p.name))
-				lastCommandTime = nowMs
-				reTime = os.clock()
-				reCommandTime = os.clock()
-			end
-			pendingReport = { id = p.id, name = p.name, level = p.level, distance = p.distance, ip = 'неизвестно', reTime = reTime }
-			DecisionOpen[0] = true
-			wasKickedFromSpectate = false
-			banCountdownStartTime = os.clock()
-			autoBanTriggered = false
-			-- Обновление статистики обнаружений
-			stats.detectionsCount = stats.detectionsCount + 1
+				elseif wasKeyPressed(menuKey[0]) and not sampIsChatInputActive() then
+					-- ===== БИНД ОТКРЫТИЯ/ЗАКРЫТИЯ МЕНЮ =====
+					if not BanLoggerState[0] then
+						WinState[0] = not WinState[0]
+					end
+				elseif wasKeyPressed(startKey[0]) and not sampIsChatInputActive() and not DecisionOpen[0] then
+					-- ===== БИНД СТАРТ/СТОП =====
+					if not isRunning then
+						startScanner()
+					else
+						stopScanner()
+					end
+				elseif backgroundMode[0] and not isRunning and backgroundPending and wasKeyPressed(activationKey[0]) and not sampIsChatInputActive() then
+					local p = backgroundPending
+					backgroundPending = nil
+					local nowMs = os.clock() * 1000
+					local reTime = nil
+					if (nowMs - lastCommandTime) >= commandCooldown and (nowMs - lastDecisionCloseTime) >= 500 then
+						sampSendChat(string.format('/re %s', p.name))
+						lastCommandTime = nowMs
+						reTime = os.clock()
+						reCommandTime = os.clock()
+					end
+					pendingReport = { id = p.id, name = p.name, level = p.level, distance = p.distance, ip = 'неизвестно', reTime = reTime }
+					DecisionOpen[0] = true
+					wasKickedFromSpectate = false
+					banCountdownStartTime = os.clock()
+					autoBanTriggered = false
+					stats.detectionsCount = stats.detectionsCount + 1
 				end
 			end
 		end
@@ -3638,7 +3501,6 @@ end
 				if botCount > 25 then
 					local timeSinceLastShow = currentTime - lastReminderShowTime
 					if timeSinceLastShow >= 300.0 or lastReminderShowTime == 0 then
-
 						reminderBotCount = botCount
 						reminderStartTime = currentTime
 						lastReminderShowTime = currentTime
@@ -3648,7 +3510,6 @@ end
 		end
 	end)
 	
-	-- Фоновое сканирование: работает только когда скрипт не запущен кнопкой "Начать"
 	lua_thread.create(function()
 		while true do
 			wait(50)
@@ -3675,7 +3536,6 @@ end
 							end
 							playerLastPos[i] = { x = px, y = py, z = pz, t = nowTime }
 
-							-- Признак бота в фоне: сверхвысокая скорость пешком рядом и низкий уровень
 							if speedKmh ~= nil and speedKmh > 500.0 and not isCharInAnyCar(ped) then
 								local dxm, dym, dzm = myX - px, myY - py, myZ - pz
 								local distanceToMe = math.sqrt(dxm*dxm + dym*dym + dzm*dzm)
@@ -3709,7 +3569,6 @@ end
 _G.main = main
 
 function getPressedKey()
-
 	if isKeyDown(0x01) then
 		while isKeyDown(0x01) do wait(0) end
 		return 0x01
